@@ -178,6 +178,9 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
                 [](auto& tgt_pt, const auto& src_pt) {
                     point::transform(tgt_pt, src_pt);
                 });
+            if constexpr (::has_column_v<PointT>) {
+                cloud.points[tgt_idx].column = static_cast<uint16_t>(v);
+            }
         }
     }
 }

@@ -149,3 +149,5 @@ constexpr void enumerate(PointT& pt, EnumOp enum_op) {
 
 }   // point
 }   // ouster_ros
+// Apply the macro to create the column checker
+DEFINE_MEMBER_CHECKER(column)
