@@ -27,6 +27,7 @@ struct EIGEN_ALIGN16 _Point {
     uint16_t ring;          // equivalent to channel
     uint16_t ambient;       // equivalent to near_ir
     uint32_t range;
+    uint16_t column;
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
@@ -41,6 +42,7 @@ struct Point : public _Point {
       ring = pt.ring;
       ambient = pt.ambient;
       range = pt.range;
+      column = pt.column;
     }
 
     inline Point()
@@ -52,14 +54,15 @@ struct Point : public _Point {
       ring = 0;
       ambient = 0;
       range = 0;
+      column = 0; 
     }
 
     inline const auto as_tuple() const {
-        return std::tie(x, y, z, intensity, t, reflectivity, ring, ambient, range);
+        return std::tie(x, y, z, intensity, t, reflectivity, ring, ambient, range, column);
     }
 
     inline auto as_tuple() {
-        return std::tie(x, y, z, intensity, t, reflectivity, ring, ambient, range);
+        return std::tie(x, y, z, intensity, t, reflectivity, ring, ambient, range, column);
     }
 
     template<size_t I>
@@ -83,6 +86,7 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(ouster_ros::Point,
     (std::uint16_t, ring, ring)
     (std::uint16_t, ambient, ambient)
     (std::uint32_t, range, range)
+    (std::uint16_t, column, column)
 )
 
 // clang-format on
