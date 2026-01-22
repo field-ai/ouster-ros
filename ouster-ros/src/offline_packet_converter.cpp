@@ -198,7 +198,7 @@ private:
             ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
                 "original",
                 info_, 
-                "velodyne",  // frame_id
+                frame_id_,  // frame_id
                 false,       // apply_lidar_to_sensor_transform
                 organized, 
                 destagger, 
@@ -244,7 +244,7 @@ private:
             cloud_serialization.serialize_message(cloud_msg.get(), serialized_cloud.get());
             
             auto cloud_bag_msg = std::make_shared<rosbag2_storage::SerializedBagMessage>();
-            cloud_bag_msg->topic_name = "/raw_velodyne_points";
+            cloud_bag_msg->topic_name = output_lidar_topic_;
             cloud_bag_msg->serialized_data = 
                 std::shared_ptr<rcutils_uint8_array_t>(
                     &serialized_cloud->get_rcl_serialized_message(),
