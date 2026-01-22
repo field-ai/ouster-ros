@@ -25,29 +25,36 @@ class OfflinePacketConverter {
 public:
     OfflinePacketConverter(const std::string& input_bag, 
                           const std::string& output_bag,
-                          const std::string& metadata_file,
-                          const std::string& lidar_topic = "/lidar_packets",
-                          const std::string& point_type = "original",
+                          const std::string& ouster_metadata_file,
+                          const std::string& robot_name,
                           const std::string& timestamp_mode = "TIME_FROM_INTERNAL_OSC")
         : input_bag_path_(input_bag),
           output_bag_path_(output_bag),
-          metadata_file_(metadata_file),
-          lidar_topic_(lidar_topic),
-          point_type_(point_type),
+          ouster_metadata_file_(ouster_metadata_file),
+          robot_name_(robot_name),
           timestamp_mode_(timestamp_mode),
           processing_complete_(false) {
         
         // Load sensor metadata
-        std::ifstream ifs(metadata_file);
+        std::ifstream ifs(ouster_metadata_file);
         if (!ifs.is_open()) {
-            throw std::runtime_error("Cannot open metadata file: " + metadata_file);
+            throw std::runtime_error("Cannot open metadata file: " + ouster_metadata_file);
         }
         std::stringstream buffer;
         buffer << ifs.rdbuf();
         std::string metadata_str = buffer.str();
         
         info_ = ouster::sensor::parse_metadata(metadata_str);
+
+        input_lidar_topic_ = "/" + robot_name_ + "/ouster/lidar_packets";
+        frame_id_ = robot_name_ + "/os_sensor";
         
+        output_lidar_topic_ = "/" + robot_name_ + "/raw_velodyne_points";
+
+        RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"),
+                    "Initialized OfflinePacketConverter with input bag: %s, output bag: %s, lidar topic: %s, frame id: %s",
+                    input_bag_path_.c_str(), output_bag_path_.c_str(),
+                    input_lidar_topic_.c_str(), frame_id_.c_str());
         // Setup point cloud processor
         setup_processors();
     }
@@ -55,7 +62,7 @@ public:
     void convert() {
         // Detect storage format from input bag
         std::string input_storage_id = detect_storage_format(input_bag_path_);
-        std::string output_storage_id = "mcap"; // Output in MCAP format
+        std::string output_storage_id = input_storage_id; // Output in MCAP format
         
         std::cout << "Input bag format: " << input_storage_id << std::endl;
         std::cout << "Output bag format: " << output_storage_id << std::endl;
@@ -82,7 +89,7 @@ public:
 
         // Create topic for point cloud
         rosbag2_storage::TopicMetadata cloud_topic;
-        cloud_topic.name = "/raw_velodyne_points";
+        cloud_topic.name = output_lidar_topic_;
         cloud_topic.type = "sensor_msgs/msg/PointCloud2";
         cloud_topic.serialization_format = "cdr";
         writer_->create_topic(cloud_topic);
@@ -90,10 +97,10 @@ public:
         std::cout << "Starting conversion..." << std::endl;
         
         // Process messages
-        while (reader.has_next()) {
+        while (reader.has_next() && rclcpp::ok()) {
             auto bag_message = reader.read_next();
             
-            if (bag_message->topic_name == lidar_topic_) {
+            if (bag_message->topic_name == input_lidar_topic_) {
                 // Process lidar packets
                 rclcpp::SerializedMessage serialized_msg(*bag_message->serialized_data);
                 ouster_sensor_msgs::msg::PacketMsg packet_msg;
@@ -108,7 +115,7 @@ public:
                 
                 current_timestamp_ = bag_message->recv_timestamp;
                 
-                // Process packet through handler (same as os_cloud_node)
+                // Process packet through handler
                 if (lidar_packet_handler_) {
                     lidar_packet_handler_(lidar_packet);
                 }
@@ -122,31 +129,53 @@ public:
             }
         }
         
-        std::cout << "\nConversion complete! Total scans: " << scan_counter_ << std::endl;
+        if (!rclcpp::ok()) {
+            std::cout << "\nConversion interrupted by user. Scans converted: " << scan_counter_ << std::endl;
+        } else {
+            std::cout << "\nConversion complete! Total scans: " << scan_counter_ << std::endl;
+        }
     }
 
 private:
     std::string detect_storage_format(const std::string& bag_path) {
-        // Check if path points to a .mcap file (C++17 compatible)
-        if (bag_path.size() >= 5 && 
-            bag_path.substr(bag_path.size() - 5) == ".mcap") {
-            return "mcap";
-        }
-        
-        // Check if it's a directory (sqlite3 db3 format)
-        if (std::filesystem::is_directory(bag_path)) {
-            return "sqlite3";
-        }
-        
-        // Check for specific file in directory
         std::filesystem::path p(bag_path);
-        if (std::filesystem::exists(p / "metadata.yaml")) {
-            return "sqlite3";
+        
+        // If it's a directory, check what's inside
+        if (std::filesystem::is_directory(bag_path)) {
+            // Check for MCAP or DB3 files in the directory
+            for (const auto& entry : std::filesystem::directory_iterator(p)) {
+                if (entry.is_regular_file()) {
+                    std::string ext = entry.path().extension().string();
+                    if (ext == ".mcap") {
+                        return "mcap";
+                    }
+                    if (ext == ".db3") {
+                        return "sqlite3";
+                    }
+                }
+            }
+            
+            // Check for metadata.yaml (indicates sqlite3 format)
+            if (std::filesystem::exists(p / "metadata.yaml")) {
+                // Still check if there are .mcap files
+                for (const auto& entry : std::filesystem::directory_iterator(p)) {
+                    if (entry.path().extension() == ".mcap") {
+                        return "mcap";
+                    }
+                }
+                return "sqlite3";
+            }
         }
         
-        // Default to mcap if file exists
-        if (std::filesystem::exists(bag_path)) {
-            return "mcap";
+        // If it's a file, check the extension
+        if (std::filesystem::is_regular_file(bag_path)) {
+            std::string ext = p.extension().string();
+            if (ext == ".mcap") {
+                return "mcap";
+            }
+            if (ext == ".db3") {
+                return "sqlite3";
+            }
         }
         
         throw std::runtime_error("Cannot detect bag format for: " + bag_path);
@@ -167,7 +196,7 @@ private:
         
         processors.push_back(
             ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
-                point_type_,
+                "original",
                 info_, 
                 "velodyne",  // frame_id
                 false,       // apply_lidar_to_sensor_transform
@@ -233,9 +262,11 @@ private:
 
     std::string input_bag_path_;
     std::string output_bag_path_;
-    std::string metadata_file_;
-    std::string lidar_topic_;
-    std::string point_type_;
+    std::string ouster_metadata_file_;
+    std::string input_lidar_topic_;
+    std::string output_lidar_topic_;
+    std::string frame_id_;
+    std::string robot_name_;
     std::string timestamp_mode_;
     
     ouster::sensor::sensor_info info_;
@@ -256,21 +287,18 @@ int main(int argc, char** argv) {
     
     if (argc < 4) {
         std::cerr << "Usage: " << argv[0] 
-                  << " <input_bag> <output_bag> <metadata_json> [lidar_topic] [point_type]" 
+                  << " <input_bag_dir> <output_bag_dir> <ouster_metadata_json> <robot_name>" 
                   << std::endl;
-        std::cerr << "point_type options: original, native, xyz, xyzi, xyzir (default: original)" << std::endl;
         return 1;
     }
     
     std::string input_bag = argv[1];
     std::string output_bag = argv[2];
-    std::string metadata_file = argv[3];
-    std::string lidar_topic = (argc > 4) ? argv[4] : "/lidar_packets";
-    std::string point_type = (argc > 5) ? argv[5] : "original";
+    std::string ouster_metadata_file = argv[3];
+    std::string robot_name = argv[4];
     
     try {
-        OfflinePacketConverter converter(input_bag, output_bag, metadata_file, 
-                                        lidar_topic, point_type);
+        OfflinePacketConverter converter(input_bag, output_bag, ouster_metadata_file, robot_name);
         converter.convert();
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
