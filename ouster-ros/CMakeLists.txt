@@ -251,11 +251,16 @@ endif()
 
 install(
   TARGETS
-    ${OUSTER_INSTALL_TARGETS}
     offline_packet_converter
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+install(
+  TARGETS
+    ${OUSTER_INSTALL_TARGETS}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
+  RUNTIME DESTINATION bin
 )
 
 install(

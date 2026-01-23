@@ -14,13 +14,11 @@
   <depend>rclcpp_components</depend>
   <depend>class_loader</depend>
   <depend>rclcpp_lifecycle</depend>
-  <depend>std_msgs</depend>
-  <depend>ouster_sensor_msgs</depend>
   <depend>rosbag2_cpp</depend>
   <depend>rosbag2_storage</depend>
-  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>ouster_sensor_msgs</depend>
-  <depend>pcl_conversions</depend>
+  <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>pcl_ros</depend>
   <depend>std_srvs</depend>
