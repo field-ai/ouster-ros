@@ -74,7 +74,7 @@ public:
         
         // Detect storage format from first bag
         std::string input_storage_id = detect_storage_format(input_bags[0]);
-        std::string output_storage_id = "mcap";
+        std::string output_storage_id = input_storage_id; // Keep same format for output
         
         std::cout << "Input bag format: " << input_storage_id << std::endl;
         std::cout << "Output bag format: " << output_storage_id << std::endl;
@@ -223,7 +223,7 @@ private:
                     lidar_packet_handler_(lidar_packet);
                 }
                 
-                // Wait for point cloud to be written (backpressure)
+                // Wait for point cloud to be written
                 wait_for_processing();
             }
             // All other topics are ignored - we only want point clouds in output
