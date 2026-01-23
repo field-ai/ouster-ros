@@ -198,7 +198,7 @@ private:
             ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
                 "original",
                 info_, 
-                frame_id_,  // frame_id
+                frame_id_,
                 false,       // apply_lidar_to_sensor_transform
                 organized, 
                 destagger, 
