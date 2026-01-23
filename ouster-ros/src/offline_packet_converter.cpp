@@ -236,6 +236,13 @@ private:
         std::vector<ouster_ros::LidarScanProcessor> processors;
         
         // Setup point cloud processor (same parameters as os_cloud_node)
+        /*
+        TODO: We probably want a better way to provide these default parameters,
+        so when we change these while launching the ros2 driver, they are also applied here.
+        One way is to have a config file or command line args for these parameters,
+        which will be same between driver and offline converter.
+        */
+
         bool organized = true;
         bool destagger = true;
         uint32_t min_range = 0;      // in mm
@@ -262,8 +269,8 @@ private:
         );
         
         // Create lidar packet handler with smaller queue (reduce buffering)
-        double ptp_utc_tai_offset = -37.0;
-        double min_scan_valid_columns_ratio = 0.0;
+        double ptp_utc_tai_offset = 0.0;
+        double min_scan_valid_columns_ratio = 0.0; // it's zero by default.
         
         lidar_packet_handler_ = ouster_ros::LidarPacketHandler::create(
             info_, 
