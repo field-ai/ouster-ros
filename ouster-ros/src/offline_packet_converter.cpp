@@ -26,13 +26,13 @@
 
 class OfflinePacketConverter {
 public:
-    OfflinePacketConverter(const std::string& input_bag, 
-                          const std::string& output_bag,
+    OfflinePacketConverter(const std::string& input_bag_dir, 
+                          const std::string& output_bag_dir,
                           const std::string& ouster_metadata_file,
                           const std::string& robot_name,
                           const std::string& timestamp_mode = "TIME_FROM_INTERNAL_OSC")
-        : input_bag_path_(input_bag),
-          output_bag_path_(output_bag),
+        : input_bag_path_(input_bag_dir),
+          output_bag_path_(output_bag_dir),
           ouster_metadata_file_(ouster_metadata_file),
           robot_name_(robot_name),
           timestamp_mode_(timestamp_mode),
@@ -255,7 +255,7 @@ private:
                 "original",
                 info_, 
                 frame_id_,
-                false,       // apply_lidar_to_sensor_transform
+                false,
                 organized, 
                 destagger, 
                 min_range, 
@@ -269,7 +269,7 @@ private:
         );
         
         // Create lidar packet handler with smaller queue (reduce buffering)
-        double ptp_utc_tai_offset = 0.0;
+        double ptp_utc_tai_offset = 0.0; // it's zero in the ouster.launch.py file by default.
         double min_scan_valid_columns_ratio = 0.0; // it's zero by default.
         
         lidar_packet_handler_ = ouster_ros::LidarPacketHandler::create(
@@ -348,13 +348,13 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    std::string input_bag = argv[1];
-    std::string output_bag = argv[2];
+    std::string input_bag_dir = argv[1];
+    std::string output_bag_dir = argv[2];
     std::string ouster_metadata_file = argv[3];
     std::string robot_name = argv[4];
     
     try {
-        OfflinePacketConverter converter(input_bag, output_bag, ouster_metadata_file, robot_name);
+        OfflinePacketConverter converter(input_bag_dir, output_bag_dir, ouster_metadata_file, robot_name);
         converter.convert();
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
