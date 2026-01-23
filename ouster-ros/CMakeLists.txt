@@ -22,8 +22,8 @@ find_package(PCL REQUIRED COMPONENTS common)
 find_package(pcl_conversions REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(OpenCV REQUIRED)
-find_package(rosbag2_cpp REQUIRED)          # Add this
-find_package(rosbag2_storage REQUIRED)      # Add this
+find_package(rosbag2_cpp REQUIRED)
+find_package(rosbag2_storage REQUIRED)
 
 # ==== Options ====
 add_compile_options(-Wall -Wextra)
