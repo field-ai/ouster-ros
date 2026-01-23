@@ -20,6 +20,9 @@
 #include <filesystem>
 #include <mutex>
 #include <condition_variable>
+#include <unordered_set>
+#include <vector>
+#include <algorithm>
 
 class OfflinePacketConverter {
 public:
@@ -60,46 +63,146 @@ public:
     }
 
     void convert() {
-        // Detect storage format from input bag
-        std::string input_storage_id = detect_storage_format(input_bag_path_);
-        std::string output_storage_id = input_storage_id; // Output in MCAP format
+        // Get list of input bag files
+        std::vector<std::string> input_bags = get_input_bags(input_bag_path_);
+        
+        if (input_bags.empty()) {
+            throw std::runtime_error("No bag files found in: " + input_bag_path_);
+        }
+        
+        std::cout << "Found " << input_bags.size() << " bag file(s) to process" << std::endl;
+        
+        // Detect storage format from first bag
+        std::string input_storage_id = detect_storage_format(input_bags[0]);
+        std::string output_storage_id = "mcap";
         
         std::cout << "Input bag format: " << input_storage_id << std::endl;
         std::cout << "Output bag format: " << output_storage_id << std::endl;
-        
-        // Setup reader
-        rosbag2_cpp::Reader reader;
-        rosbag2_storage::StorageOptions storage_options;
-        storage_options.uri = input_bag_path_;
-        storage_options.storage_id = input_storage_id;
         
         rosbag2_cpp::ConverterOptions converter_options;
         converter_options.input_serialization_format = "cdr";
         converter_options.output_serialization_format = "cdr";
         
-        reader.open(storage_options, converter_options);
-
-        // Setup writer
-        writer_ = std::make_unique<rosbag2_cpp::Writer>();
-        rosbag2_storage::StorageOptions write_storage_options;
-        write_storage_options.uri = output_bag_path_;
-        write_storage_options.storage_id = output_storage_id;
-        
-        writer_->open(write_storage_options, converter_options);
-
-        // Create topic for point cloud
-        rosbag2_storage::TopicMetadata cloud_topic;
-        cloud_topic.name = output_lidar_topic_;
-        cloud_topic.type = "sensor_msgs/msg/PointCloud2";
-        cloud_topic.serialization_format = "cdr";
-        writer_->create_topic(cloud_topic);
+        // Create output directory if it doesn't exist
+        std::filesystem::create_directories(output_bag_path_);
 
         std::cout << "Starting conversion..." << std::endl;
         
-        // Process messages
+        // Process each bag file - create separate output for each
+        for (size_t bag_idx = 0; bag_idx < input_bags.size(); ++bag_idx) {
+            const auto& bag_file = input_bags[bag_idx];
+            
+            if (!rclcpp::ok()) {
+                std::cout << "\nConversion interrupted by user." << std::endl;
+                break;
+            }
+            
+            // Create output bag name based on input bag name
+            std::filesystem::path input_path(bag_file);
+            std::string input_filename = input_path.stem().string(); // filename without extension
+            std::string output_bag_file = output_bag_path_ + "/" + input_filename + "_lidar.mcap";
+            
+            std::cout << "\nProcessing bag " << (bag_idx + 1) << "/" << input_bags.size() 
+                      << ": " << input_path.filename().string() << std::endl;
+            std::cout << "Output: " << output_bag_file << std::endl;
+            
+            // Create new writer for this bag
+            writer_ = std::make_unique<rosbag2_cpp::Writer>();
+            rosbag2_storage::StorageOptions write_storage_options;
+            write_storage_options.uri = output_bag_file;
+            write_storage_options.storage_id = output_storage_id;
+            
+            writer_->open(write_storage_options, converter_options);
+
+            // Create topic for point cloud
+            rosbag2_storage::TopicMetadata cloud_topic;
+            cloud_topic.name = output_lidar_topic_;
+            cloud_topic.type = "sensor_msgs/msg/PointCloud2";
+            cloud_topic.serialization_format = "cdr";
+            writer_->create_topic(cloud_topic);
+            
+            // Reset scan counter for this bag
+            int bag_scan_counter = 0;
+            scan_counter_ = 0;
+            
+            // Process this bag
+            process_single_bag(bag_file, input_storage_id, converter_options);
+            
+            // Close writer for this bag
+            writer_.reset();
+            
+            std::cout << "\nCompleted: " << scan_counter_ << " scans converted" << std::endl;
+        }
+        
+        if (!rclcpp::ok()) {
+            std::cout << "\nConversion interrupted by user." << std::endl;
+        } else {
+            std::cout << "\nAll conversions complete!" << std::endl;
+        }
+    }
+
+private:
+    std::vector<std::string> get_input_bags(const std::string& bag_path) {
+        std::vector<std::string> bags;
+        std::filesystem::path p(bag_path);
+        
+        // If it's a single file, return it
+        if (std::filesystem::is_regular_file(bag_path)) {
+            bags.push_back(bag_path);
+            return bags;
+        }
+        
+        // If it's a directory, find all bag files
+        if (std::filesystem::is_directory(bag_path)) {
+            for (const auto& entry : std::filesystem::directory_iterator(p)) {
+                if (entry.is_regular_file()) {
+                    std::string ext = entry.path().extension().string();
+                    if (ext == ".mcap" || ext == ".db3") {
+                        bags.push_back(entry.path().string());
+                    }
+                }
+            }
+            
+            // Sort bags by filename for consistent ordering
+            std::sort(bags.begin(), bags.end());
+        }
+        
+        return bags;
+    }
+    
+    std::string detect_storage_format(const std::string& bag_path) {
+        std::filesystem::path p(bag_path);
+        
+        // If it's a file, check the extension
+        if (std::filesystem::is_regular_file(bag_path)) {
+            std::string ext = p.extension().string();
+            if (ext == ".mcap") {
+                return "mcap";
+            }
+            if (ext == ".db3") {
+                return "sqlite3";
+            }
+        }
+        
+        throw std::runtime_error("Cannot detect bag format for: " + bag_path);
+    }
+    
+    void process_single_bag(const std::string& bag_file, 
+                           const std::string& storage_id,
+                           const rosbag2_cpp::ConverterOptions& converter_options) {
+        // Setup reader for this bag
+        rosbag2_cpp::Reader reader;
+        rosbag2_storage::StorageOptions storage_options;
+        storage_options.uri = bag_file;
+        storage_options.storage_id = storage_id;
+        
+        reader.open(storage_options, converter_options);
+        
+        // Process messages from this bag
         while (reader.has_next() && rclcpp::ok()) {
             auto bag_message = reader.read_next();
             
+            // Only process lidar packets, ignore everything else
             if (bag_message->topic_name == input_lidar_topic_) {
                 // Process lidar packets
                 rclcpp::SerializedMessage serialized_msg(*bag_message->serialized_data);
@@ -122,63 +225,9 @@ public:
                 
                 // Wait for point cloud to be written (backpressure)
                 wait_for_processing();
-                
-            } else {
-                // Copy all other messages as-is
-                writer_->write(bag_message);
             }
+            // All other topics are ignored - we only want point clouds in output
         }
-        
-        if (!rclcpp::ok()) {
-            std::cout << "\nConversion interrupted by user. Scans converted: " << scan_counter_ << std::endl;
-        } else {
-            std::cout << "\nConversion complete! Total scans: " << scan_counter_ << std::endl;
-        }
-    }
-
-private:
-    std::string detect_storage_format(const std::string& bag_path) {
-        std::filesystem::path p(bag_path);
-        
-        // If it's a directory, check what's inside
-        if (std::filesystem::is_directory(bag_path)) {
-            // Check for MCAP or DB3 files in the directory
-            for (const auto& entry : std::filesystem::directory_iterator(p)) {
-                if (entry.is_regular_file()) {
-                    std::string ext = entry.path().extension().string();
-                    if (ext == ".mcap") {
-                        return "mcap";
-                    }
-                    if (ext == ".db3") {
-                        return "sqlite3";
-                    }
-                }
-            }
-            
-            // Check for metadata.yaml (indicates sqlite3 format)
-            if (std::filesystem::exists(p / "metadata.yaml")) {
-                // Still check if there are .mcap files
-                for (const auto& entry : std::filesystem::directory_iterator(p)) {
-                    if (entry.path().extension() == ".mcap") {
-                        return "mcap";
-                    }
-                }
-                return "sqlite3";
-            }
-        }
-        
-        // If it's a file, check the extension
-        if (std::filesystem::is_regular_file(bag_path)) {
-            std::string ext = p.extension().string();
-            if (ext == ".mcap") {
-                return "mcap";
-            }
-            if (ext == ".db3") {
-                return "sqlite3";
-            }
-        }
-        
-        throw std::runtime_error("Cannot detect bag format for: " + bag_path);
     }
     
     void setup_processors() {
