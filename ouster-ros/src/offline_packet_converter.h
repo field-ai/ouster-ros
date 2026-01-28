@@ -34,7 +34,7 @@ class OfflinePacketConverter {
 
         void waitForProcessing();
 
-        std::string getOutputBagDir(const std::string& input_bag_dir);
+        std::string getBagsFromDirName(const std::string& input_bag_dir);
 
         std::string getOutputBagFilename(const std::string& input_bag_filename);
 
