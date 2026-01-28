@@ -12,6 +12,10 @@
 #include <string>
 #include <vector>
 
+constexpr size_t MAX_BAGFILE_SIZE_BYTES = 500ULL * 1024ULL * 1024ULL;  // 500MB
+constexpr size_t MAX_CACHE_SIZE_BYTES = 64ULL * 1024ULL * 1024ULL;    // 64MB
+constexpr uint64_t NANOSECONDS_PER_SECOND = 1000000000ULL;
+
 class OfflinePacketConverter {
     public:
         OfflinePacketConverter(const std::string& input_bag_dir, 
@@ -28,7 +32,7 @@ class OfflinePacketConverter {
                     const std::string& robot_name,
                     const std::string& timestamp_mode);
 
-        bool validateInputBags(const std::string& bag_path);
+        bool validateInputBag(const std::string& bag_path);
 
         void processSingleBag(const std::string& bag_file, 
                             const std::string& storage_id,
