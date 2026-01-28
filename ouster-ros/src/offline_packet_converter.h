@@ -5,7 +5,7 @@
 #include <rosbag2_cpp/reader.hpp>
 #include <rosbag2_cpp/writer.hpp>
 #include <rosbag2_storage/storage_options.hpp>
-
+#include "point_cloud_processor.h"
 #include <ouster/types.h>
 
 #include <memory>
@@ -23,24 +23,24 @@ class OfflinePacketConverter {
         void convert();
 
     private:
-        bool getBagsFromDir(const std::string& bag_dir, std::vector<std::string>& bags);
 
-        bool isMcapBag(const std::string& bag_path);
+        bool validateInputs(const std::string& input_bag_dir,
+                    const std::string& robot_name,
+                    const std::string& timestamp_mode);
+
+        bool validateInputBags(const std::string& bag_path);
 
         void processSingleBag(const std::string& bag_file, 
                             const std::string& storage_id,
                             const rosbag2_cpp::ConverterOptions& converter_options);        
-        void setupProcessors();
 
-        void waitForProcessing();
-
-        std::string getBagsFromDirName(const std::string& input_bag_dir);
-
-        std::string getOutputBagFilename(const std::string& input_bag_filename);
+        std::string getOutputBagDir(const std::string& input_bag_dir);
 
         std::string replaceRawWithPointcloud(const std::string& filename);
 
         ouster::sensor::sensor_info loadOusterMetadata(const std::string& metadata_file);
+
+        void writePointClouds(ouster_ros::PointCloudProcessor_OutputType& msgs);
 
         std::string input_bag_dir_;
         std::string robot_name_;
@@ -49,12 +49,10 @@ class OfflinePacketConverter {
         std::string output_lidar_topic_;
         std::string frame_id_;
         std::string output_bag_dir_;
-        std::vector<std::string> input_rosbags_;
-        
+
         ouster::sensor::sensor_info ouster_metadata_;
         
         std::unique_ptr<rosbag2_cpp::Writer> writer_;
-        int64_t current_timestamp_;
         int scan_counter_ = 0;
 
 };

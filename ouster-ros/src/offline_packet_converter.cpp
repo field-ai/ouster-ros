@@ -26,45 +26,61 @@ OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir,
                           const std::string& timestamp_mode)
     :   input_bag_dir_(input_bag_dir),
         robot_name_(robot_name),
-        timestamp_mode_(timestamp_mode),
-        input_rosbags_({}) {
-
+        timestamp_mode_(timestamp_mode)
+    {
+    if (!validateInputs(input_bag_dir_, robot_name_, timestamp_mode_)) {
+        throw std::runtime_error("Invalid inputs to OfflinePacketConverter.");
+    }
     ouster_metadata_ = loadOusterMetadata(ouster_metadata_file);
 
     input_lidar_topic_ = "/" + robot_name_ + "/ouster/lidar_packets";
     frame_id_ = robot_name_ + "/os_sensor";
     output_lidar_topic_ = "/" + robot_name_ + "/raw_velodyne_points";
-    output_bag_dir_ = getBagsFromDirName(input_bag_dir_);
-
-    if (!getBagsFromDir(input_bag_dir_, input_rosbags_)) {
-        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
-                     "No bag files found in input directory: %s", input_bag_dir_.c_str());
-        throw std::runtime_error("No bag files found in: " + input_bag_dir_);
-    }
+    output_bag_dir_ = getOutputBagDir(input_bag_dir_);
     RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"),
                 "Initialized OfflinePacketConverter with input bag: %s, output bag: %s, lidar topic: %s, frame id: %s",
                 input_bag_dir_.c_str(), output_bag_dir_.c_str(),
                 input_lidar_topic_.c_str(), frame_id_.c_str());
-}
-
-void OfflinePacketConverter::convert() {
-    
-    // Check only storage format from first bag, assume all bags are same format
-    bool is_mcap = isMcapBag(input_bag_dir_);
+    bool is_mcap = validateInputBags(input_bag_dir_);
     if (!is_mcap) {
         RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
                      "Only MCAP bag format is supported.");
         throw std::runtime_error("Unsupported input bag format.");
     }
+}
+
+bool OfflinePacketConverter::validateInputs(const std::string& input_bag_dir,
+                    const std::string& robot_name,
+                    const std::string& timestamp_mode) {
+    
+    if (input_bag_dir.empty()) {
+        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
+                     "Input bag directory cannot be empty.");
+        return false;
+    }
+    if (robot_name.empty()) {
+        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
+                     "Robot name cannot be empty.");
+        return false;
+    }
+    if (timestamp_mode != "TIME_FROM_PTP_1588")
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
+                     "Unsupported timestamp mode: %s. Only TIME_FROM_PTP_1588 is supported.",
+                     timestamp_mode.c_str());
+        return false;
+    }
+    return true;
+}
+
+void OfflinePacketConverter::convert() {
+    
     std::string input_storage_id = "mcap";
     std::string output_storage_id = input_storage_id;
     
     rosbag2_cpp::ConverterOptions converter_options;
     converter_options.input_serialization_format = "cdr";
     converter_options.output_serialization_format = "cdr";
-
-    RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"),
-                "Starting conversion of %zu bag(s)...", input_rosbags_.size());
     
     std::string output_bag_file = output_bag_dir_;
 
@@ -72,6 +88,7 @@ void OfflinePacketConverter::convert() {
                 "Processing bag dir: %s -> %s (splitting output at 500MB)",
                 input_bag_dir_.c_str(), output_bag_file.c_str());
 
+    
     writer_ = std::make_unique<rosbag2_cpp::Writer>();
     rosbag2_storage::StorageOptions write_storage_options;
     write_storage_options.uri = output_bag_file;
@@ -92,8 +109,10 @@ void OfflinePacketConverter::convert() {
 
     processSingleBag(input_bag_dir_, input_storage_id, converter_options);
 
-    RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"), "Converted scans %d", scan_counter_);
     writer_.reset();
+
+    RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"), "Converted scans %d", scan_counter_);
+    
     if (!rclcpp::ok()) {
         RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"), "Conversion interrupted by user.");
     } else {
@@ -104,56 +123,50 @@ void OfflinePacketConverter::convert() {
 ouster::sensor::sensor_info OfflinePacketConverter::loadOusterMetadata(const std::string& metadata_file) {
     std::ifstream ifs(metadata_file);
     if (!ifs.is_open()) {
+        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
+                     "Cannot open metadata file: %s", metadata_file.c_str());
         throw std::runtime_error("Cannot open metadata file: " + metadata_file);
     }
     std::stringstream buffer;
     buffer << ifs.rdbuf();
-    ouster::sensor::sensor_info ouster_metadata = ouster::sensor::parse_metadata(buffer.str());
-    return ouster_metadata;
-}
-
-bool OfflinePacketConverter::getBagsFromDir(const std::string& bag_dir, std::vector<std::string>& bags) {
-    std::filesystem::path p(bag_dir);
-
-    if (std::filesystem::is_directory(bag_dir)) {
-        for (const auto& entry : std::filesystem::directory_iterator(p)) {
-            if (entry.is_regular_file()) {
-                std::string ext = entry.path().extension().string();
-                if (ext == ".mcap") {
-                    bags.push_back(entry.path().string());
-                }
-            }
-        }
-        std::sort(bags.begin(), bags.end());
+    try
+    {
+        return ouster::sensor::parse_metadata(buffer.str());
     }
-    return !bags.empty();
+    catch(const std::exception& e)
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
+                     "Failed to parse Ouster metadata: %s", e.what());
+        throw;
+    }
 }
 
-bool OfflinePacketConverter::isMcapBag(const std::string& bag_path) {
-  std::filesystem::path p(bag_path);
+bool OfflinePacketConverter::validateInputBags(const std::string& bag_dir) {
+  std::filesystem::path bag(bag_dir);
 
-  if (std::filesystem::is_directory(p)) {
-    // rosbag2 bag dir should contain metadata.yaml
-    auto metadata = p / "metadata.yaml";
+  if (std::filesystem::is_directory(bag)) {
+    auto metadata = bag / "metadata.yaml";
     if (!std::filesystem::exists(metadata)) {
-      throw std::runtime_error("Bag directory missing metadata.yaml: " + bag_path);
+        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
+                     "Bag directory missing metadata.yaml: %s", bag.string().c_str());
+        throw std::runtime_error("Bag directory missing metadata.yaml: " + bag.string());
     }
 
     // confirm at least one .mcap exists
-    for (const auto& entry : std::filesystem::directory_iterator(p)) {
+    for (const auto& entry : std::filesystem::directory_iterator(bag)) {
       if (entry.is_regular_file() && entry.path().extension() == ".mcap") {
         return true;
       }
     }
-    throw std::runtime_error("No .mcap files found in bag directory: " + bag_path);
+    RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
+                 "No .mcap files found in bag directory: %s", bag.string().c_str());
+    throw std::runtime_error("No .mcap files found in bag directory: " + bag.string());
   }
-
-  if (std::filesystem::is_regular_file(p)) {
-    if (p.extension() == ".mcap") return true;
-    throw std::runtime_error("Cannot detect bag format for: " + bag_path);
+  else {
+    RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
+                 "Bag path is not a directory: %s", bag_dir.c_str());
+    throw std::runtime_error("Bag path is not a directory: " + bag.string());
   }
-
-  throw std::runtime_error("Bag path is not a file or directory: " + bag_path);
 }
 
 void OfflinePacketConverter::processSingleBag(const std::string& bag_file, 
@@ -192,22 +205,7 @@ void OfflinePacketConverter::processSingleBag(const std::string& bag_file,
         rows_step,                          // rows_step (use all rows)
         mask_path,                          // mask_path (no mask)
         [this](ouster_ros::PointCloudProcessor_OutputType msgs) {
-            for (auto& cloud_msg : msgs) {
-                // Serialize and write to bag
-                rclcpp::Serialization<sensor_msgs::msg::PointCloud2> serialization;
-                auto serialized = std::make_shared<rclcpp::SerializedMessage>();
-                serialization.serialize_message(cloud_msg.get(), serialized.get());
-                
-                auto bag_msg = std::make_shared<rosbag2_storage::SerializedBagMessage>();
-                bag_msg->topic_name = output_lidar_topic_;
-                bag_msg->serialized_data = std::shared_ptr<rcutils_uint8_array_t>(
-                    &serialized->get_rcl_serialized_message(),
-                    [serialized](rcutils_uint8_array_t*) {});
-                bag_msg->recv_timestamp = cloud_msg->header.stamp.nanosec + 
-                                         cloud_msg->header.stamp.sec * 1000000000ULL;
-                writer_->write(bag_msg);
-                scan_counter_++;
-            }
+            this->writePointClouds(msgs);
         }
     );
     while (reader.has_next() && rclcpp::ok()) {
@@ -251,7 +249,26 @@ void OfflinePacketConverter::processSingleBag(const std::string& bag_file,
     }
 }
 
-std::string OfflinePacketConverter::getBagsFromDirName(const std::string& input_bag_dir) {
+void OfflinePacketConverter::writePointClouds(ouster_ros::PointCloudProcessor_OutputType& msgs) {
+    for (auto& cloud_msg : msgs) {
+        rclcpp::Serialization<sensor_msgs::msg::PointCloud2> serialization;
+        auto serialized = std::make_shared<rclcpp::SerializedMessage>();
+        serialization.serialize_message(cloud_msg.get(), serialized.get());
+        
+        auto bag_msg = std::make_shared<rosbag2_storage::SerializedBagMessage>();
+        bag_msg->topic_name = output_lidar_topic_;
+        bag_msg->serialized_data = std::shared_ptr<rcutils_uint8_array_t>(
+            &serialized->get_rcl_serialized_message(),
+            [serialized](rcutils_uint8_array_t*) {});
+        bag_msg->recv_timestamp = cloud_msg->header.stamp.nanosec + 
+                                 cloud_msg->header.stamp.sec * 1000000000ULL;
+        
+        writer_->write(bag_msg);
+        scan_counter_++;
+    }
+}
+
+std::string OfflinePacketConverter::getOutputBagDir(const std::string& input_bag_dir) {
     std::filesystem::path input_dir(input_bag_dir);
     std::filesystem::path parent_dir = input_dir.parent_path();
     if (parent_dir.empty()) {
@@ -281,6 +298,9 @@ std::string OfflinePacketConverter::replaceRawWithPointcloud(const std::string& 
 }
 
 OfflinePacketConverter::~OfflinePacketConverter(){
+    if (writer_) {
+        writer_.reset();
+    }
 }
 
 int main(int argc, char** argv) {
