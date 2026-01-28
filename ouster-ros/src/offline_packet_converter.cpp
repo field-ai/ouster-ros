@@ -15,6 +15,7 @@
 #include <condition_variable>
 #include <vector>
 #include <algorithm>
+#include <chrono>
 
 OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir, 
                           const std::string& ouster_metadata_file,
@@ -31,7 +32,7 @@ OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir,
     frame_id_ = robot_name_ + "/os_sensor";
     output_lidar_topic_ = "/" + robot_name_ + "/raw_velodyne_points";
     output_bag_dir_ = getOutputBagDir(input_bag_dir_);
-    input_rosbags_ = getInputBags(input_bag_dir_);
+    input_rosbags_ = getBagsFromDir(input_bag_dir_);
 
     if (input_rosbags_.empty()) {
         throw std::runtime_error("No bag files found in: " + input_bag_dir_);
@@ -49,6 +50,8 @@ void OfflinePacketConverter::convert() {
     // Check only storage format from first bag, assume all bags are same format
     bool is_mcap = isMcapBag(input_rosbags_[0]);
     if (!is_mcap) {
+        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
+                     "Only MCAP bag format is supported.");
         throw std::runtime_error("Unsupported input bag format.");
     }
     std::string input_storage_id = "mcap";
@@ -119,34 +122,24 @@ ouster::sensor::sensor_info OfflinePacketConverter::loadOusterMetadata(const std
     return ouster_metadata;
 }
 
-std::vector<std::string> OfflinePacketConverter::getInputBags(const std::string& bag_path) {
+std::vector<std::string> OfflinePacketConverter::getBagsFromDir(const std::string& bag_dir) {
     std::vector<std::string> bags;
-    std::filesystem::path p(bag_path);
-    
-    // If it's a single file, return it
-    if (std::filesystem::is_regular_file(bag_path)) {
-        bags.push_back(bag_path);
-        return bags;
-    }
-    
-    // If it's a directory, find all bag files
-    if (std::filesystem::is_directory(bag_path)) {
+    std::filesystem::path p(bag_dir);
+
+    if (std::filesystem::is_directory(bag_dir)) {
         for (const auto& entry : std::filesystem::directory_iterator(p)) {
             if (entry.is_regular_file()) {
                 std::string ext = entry.path().extension().string();
-                if (ext == ".mcap" || ext == ".db3") {
+                if (ext == ".mcap") {
                     bags.push_back(entry.path().string());
                 }
             }
         }
-        
-        // Sort bags by filename for consistent ordering
         std::sort(bags.begin(), bags.end());
     }
-    
     return bags;
 }
-    
+
 bool OfflinePacketConverter::isMcapBag(const std::string& bag_path) {
     std::filesystem::path bag(bag_path);
     
@@ -256,10 +249,11 @@ void OfflinePacketConverter::setupProcessors() {
     uint32_t max_range = 1000000; // in mm (1000m)
     int v_reduction = 1;
     std::string mask_path = "";
+    std::string point_type = "original";
     
     processors.push_back(
         ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
-            "original",
+            point_type,
             ouster_metadata_, 
             frame_id_,
             false,
@@ -334,7 +328,7 @@ int main(int argc, char** argv) {
     std::string input_bag_dir = argv[1];
     std::string ouster_metadata_file = argv[2];
     std::string robot_name = argv[3];
-    
+    std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
     try {
         OfflinePacketConverter converter(input_bag_dir, ouster_metadata_file, robot_name);
         converter.convert();
@@ -343,6 +337,10 @@ int main(int argc, char** argv) {
         rclcpp::shutdown();
         return 1;
     }
+    auto time_taken = std::chrono::steady_clock::now() - start_time;
+    RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"),
+                "Total time taken: %.2f seconds",
+                std::chrono::duration<double>(time_taken).count());
     
     rclcpp::shutdown();
     return 0;
