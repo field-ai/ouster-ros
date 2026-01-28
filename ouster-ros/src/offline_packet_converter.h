@@ -5,22 +5,12 @@
 #include <rosbag2_cpp/reader.hpp>
 #include <rosbag2_cpp/writer.hpp>
 #include <rosbag2_storage/storage_options.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <ouster_sensor_msgs/msg/packet_msg.hpp>
 
-// Ouster SDK includes
 #include <ouster/types.h>
-#include <ouster/lidar_scan.h>
-
-#include "lidar_packet_handler.h"
-#include "point_cloud_processor.h"
-#include "point_cloud_processor_factory.h"
 
 #include <memory>
 #include <string>
 #include <vector>
-#include <mutex>
-#include <condition_variable>
 
 class OfflinePacketConverter {
     public:
@@ -39,14 +29,10 @@ class OfflinePacketConverter {
 
         void processSingleBag(const std::string& bag_file, 
                             const std::string& storage_id,
-                            const rosbag2_cpp::ConverterOptions& converter_options);
-        void processCompleteScan(const ouster::LidarScan& scan);
-        
+                            const rosbag2_cpp::ConverterOptions& converter_options);        
         void setupProcessors();
 
         void waitForProcessing();
-
-        void handlePointClouds(ouster_ros::PointCloudProcessor_OutputType msgs);
 
         std::string getOutputBagDir(const std::string& input_bag_dir);
 
