@@ -32,7 +32,7 @@ class OfflinePacketConverter {
         void convert();
 
     private:
-        std::vector<std::string> getBagsFromDir(const std::string& bag_dir);
+        bool getBagsFromDir(const std::string& bag_dir, std::vector<std::string>& bags);
 
         bool isMcapBag(const std::string& bag_path);
 
