@@ -7,34 +7,27 @@ import os
 
 
 def generate_launch_description():
-    # Declare launch arguments
-    input_bag_arg = DeclareLaunchArgument(
-        'input_bag',
+    input_bag_dir_arg = DeclareLaunchArgument(
+        'input_bag_dir',
         description='Path to input bag directory or file'
     )
     
-    output_bag_arg = DeclareLaunchArgument(
-        'output_bag',
-        description='Path to output bag directory'
-    )
-    
-    metadata_file_arg = DeclareLaunchArgument(
-        'metadata_file',
+    ouster_metadata_fp = DeclareLaunchArgument(
+        'ouster_metadata_filepath',
         description='Path to Ouster metadata JSON file'
     )
     
-    robot_name_arg = DeclareLaunchArgument(
-        'robot_name',
+    robot_namespace_arg = DeclareLaunchArgument(
+        'robot_namespace',
         description='Robot name for topic namespacing'
     )
     
     timestamp_mode_arg = DeclareLaunchArgument(
         'timestamp_mode',
-        default_value='TIME_FROM_INTERNAL_OSC',
+        default_value='TIME_FROM_PTP_1588',
         description='Timestamp mode for lidar packets'
     )
     
-    # Custom substitution to expand ~ to home directory
     class ExpandPath(Substitution):
         def __init__(self, path_sub):
             super().__init__()
@@ -47,14 +40,12 @@ def generate_launch_description():
             path = self.path_sub.perform(context)
             return os.path.expanduser(path)
     
-    # Use ros2 run to find the executable automatically
     converter_exe = ExecuteProcess(
         cmd=[
             'ros2', 'run', 'ouster_ros', 'offline_packet_converter',
-            ExpandPath(LaunchConfiguration('input_bag')),
-            ExpandPath(LaunchConfiguration('output_bag')),
-            ExpandPath(LaunchConfiguration('metadata_file')),
-            LaunchConfiguration('robot_name'),
+            ExpandPath(LaunchConfiguration('input_bag_dir')),
+            ExpandPath(LaunchConfiguration('ouster_metadata_filepath')),
+            LaunchConfiguration('robot_namespace'),
             LaunchConfiguration('timestamp_mode')
         ],
         output='screen',
@@ -62,10 +53,9 @@ def generate_launch_description():
     )
     
     return LaunchDescription([
-        input_bag_arg,
-        output_bag_arg,
-        metadata_file_arg,
-        robot_name_arg,
+        input_bag_dir_arg,
+        ouster_metadata_fp,
+        robot_namespace_arg,
         timestamp_mode_arg,
         converter_exe
     ])
