@@ -192,8 +192,16 @@ add_executable(offline_packet_converter
   src/offline_packet_converter.cpp
 )
 
+target_include_directories(offline_packet_converter
+  PUBLIC
+    ${_ouster_ros_INCLUDE_DIRS}
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
 target_link_libraries(offline_packet_converter
   ouster_ros_library
+  ${OUSTER_TARGET_LINKS}
 )
 
 ament_target_dependencies(offline_packet_converter
