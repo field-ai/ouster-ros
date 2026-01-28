@@ -76,7 +76,7 @@ void OfflinePacketConverter::convert() {
         }
         
         std::filesystem::path input_bag_path(bag_file);
-        std::filesystem::path input_filename = input_bag_path.filename();
+        std::filesystem::path input_filename = input_bag_path.filename().stem();
         std::string output_bag_file = output_bag_dir_ + "/" + getOutputBagFilename(input_filename.string());
 
         RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"),
