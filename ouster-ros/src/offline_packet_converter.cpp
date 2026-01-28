@@ -173,10 +173,8 @@ void OfflinePacketConverter::processSingleBag(const std::string& bag_file,
     
     reader.open(storage_options, converter_options);
     
-    // Create ScanBatcher - THIS is the key!
     ouster::ScanBatcher batcher(ouster_metadata_);
     
-    // Create LidarScan to accumulate data
     ouster::LidarScan scan(
         ouster_metadata_.format.columns_per_frame,
         ouster_metadata_.format.pixels_per_column,
