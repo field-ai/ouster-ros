@@ -34,7 +34,7 @@ class OfflinePacketConverter {
 
         bool validateInputBag(const std::string& bag_path);
 
-        void processSingleBag(const std::string& bag_file, 
+        void processBag(const std::string& bag_file, 
                             const std::string& storage_id,
                             const rosbag2_cpp::ConverterOptions& converter_options);        
 
