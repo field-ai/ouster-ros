@@ -105,7 +105,7 @@ void OfflinePacketConverter::convert() {
 
     scan_counter_ = 0;
 
-    processSingleBag(input_bag_dir_, input_storage_id, converter_options);
+    processBag(input_bag_dir_, input_storage_id, converter_options);
 
     writer_.reset();
 
@@ -167,7 +167,7 @@ bool OfflinePacketConverter::validateInputBag(const std::string& bag_dir) {
   }
 }
 
-void OfflinePacketConverter::processSingleBag(const std::string& bag_file, 
+void OfflinePacketConverter::processBag(const std::string& bag_file, 
                            const std::string& storage_id,
                            const rosbag2_cpp::ConverterOptions& converter_options) {
     rosbag2_cpp::Reader reader;
