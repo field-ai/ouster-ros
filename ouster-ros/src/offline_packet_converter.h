@@ -28,6 +28,7 @@ class OfflinePacketConverter {
                             const std::string& ouster_metadata_file,
                             const std::string& robot_name,
                             const std::string& timestamp_mode = "TIME_FROM_PTP_1588");
+        ~OfflinePacketConverter();
         
         void convert();
 
