@@ -24,20 +24,20 @@ OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir,
     :   input_bag_dir_(input_bag_dir),
         robot_name_(robot_name),
         timestamp_mode_(timestamp_mode),
-        processing_complete_(false) {
-    
+        processing_complete_(false),
+        input_rosbags_({}) {
+
     ouster_metadata_ = loadOusterMetadata(ouster_metadata_file);
 
     input_lidar_topic_ = "/" + robot_name_ + "/ouster/lidar_packets";
     frame_id_ = robot_name_ + "/os_sensor";
     output_lidar_topic_ = "/" + robot_name_ + "/raw_velodyne_points";
     output_bag_dir_ = getOutputBagDir(input_bag_dir_);
-    input_rosbags_ = getBagsFromDir(input_bag_dir_);
-
-    if (input_rosbags_.empty()) {
+    if (!getBagsFromDir(input_bag_dir_, input_rosbags_)) {
+        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
+                     "No bag files found in input directory: %s", input_bag_dir_.c_str());
         throw std::runtime_error("No bag files found in: " + input_bag_dir_);
     }
-
     RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"),
                 "Initialized OfflinePacketConverter with input bag: %s, output bag: %s, lidar topic: %s, frame id: %s",
                 input_bag_dir_.c_str(), output_bag_dir_.c_str(),
@@ -122,8 +122,7 @@ ouster::sensor::sensor_info OfflinePacketConverter::loadOusterMetadata(const std
     return ouster_metadata;
 }
 
-std::vector<std::string> OfflinePacketConverter::getBagsFromDir(const std::string& bag_dir) {
-    std::vector<std::string> bags;
+bool OfflinePacketConverter::getBagsFromDir(const std::string& bag_dir, std::vector<std::string>& bags) {
     std::filesystem::path p(bag_dir);
 
     if (std::filesystem::is_directory(bag_dir)) {
@@ -137,7 +136,7 @@ std::vector<std::string> OfflinePacketConverter::getBagsFromDir(const std::strin
         }
         std::sort(bags.begin(), bags.end());
     }
-    return bags;
+    return !bags.empty();
 }
 
 bool OfflinePacketConverter::isMcapBag(const std::string& bag_path) {
