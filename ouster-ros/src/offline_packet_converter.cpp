@@ -223,7 +223,6 @@ void OfflinePacketConverter::processCompleteScan(const ouster::LidarScan& scan) 
     pcl_cloud.header.frame_id = frame_id_;
     pcl_cloud.header.stamp = current_timestamp_ / 1000;
     
-    // ✅ Pre-allocate organized cloud (like official code)
     pcl_cloud.width = w;
     pcl_cloud.height = h;
     pcl_cloud.is_dense = false;
@@ -235,20 +234,17 @@ void OfflinePacketConverter::processCompleteScan(const ouster::LidarScan& scan) 
     auto near_ir = scan.field<uint16_t>(ouster::sensor::ChanField::NEAR_IR);
     auto timestamps = scan.timestamp();
 
-    // ✅ Fill ALL points (like official code - no skipping)
     for (size_t u = 0; u < w; u++) {
         for (size_t v = 0; v < h; v++) {
             size_t xyz_idx = u * h + v;
-            size_t cloud_idx = v * w + u;  // Row-major
+            size_t cloud_idx = v * w + u;
             
             ouster_ros::Point& point = pcl_cloud.points[cloud_idx];
             
-            // ✅ Always write XYZ from cartesian (like official code)
             point.x = points(xyz_idx, 0);
             point.y = points(xyz_idx, 1);
             point.z = points(xyz_idx, 2);
             
-            // ✅ Always write other fields (like official code)
             point.intensity = static_cast<float>(signal(v, u));
 
             point.t = static_cast<uint32_t>(timestamps[u]);
@@ -256,7 +252,7 @@ void OfflinePacketConverter::processCompleteScan(const ouster::LidarScan& scan) 
             point.ring = static_cast<uint16_t>(v);
             point.ambient = near_ir(v, u);
             point.range = range(v, u);
-            point.column = static_cast<uint16_t>(u);  // You can keep this
+            point.column = static_cast<uint16_t>(u);
         }
     }
     
