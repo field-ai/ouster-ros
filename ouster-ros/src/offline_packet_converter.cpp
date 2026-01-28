@@ -34,7 +34,7 @@ OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir,
     input_lidar_topic_ = "/" + robot_name_ + "/ouster/lidar_packets";
     frame_id_ = robot_name_ + "/os_sensor";
     output_lidar_topic_ = "/" + robot_name_ + "/raw_velodyne_points";
-    output_bag_dir_ = getOutputBagDir(input_bag_dir_);
+    output_bag_dir_ = getBagsFromDirName(input_bag_dir_);
 
     if (!getBagsFromDir(input_bag_dir_, input_rosbags_)) {
         RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
@@ -50,7 +50,7 @@ OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir,
 void OfflinePacketConverter::convert() {
     
     // Check only storage format from first bag, assume all bags are same format
-    bool is_mcap = isMcapBag(input_rosbags_[0]);
+    bool is_mcap = isMcapBag(input_bag_dir_);
     if (!is_mcap) {
         RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
                      "Only MCAP bag format is supported.");
@@ -66,46 +66,34 @@ void OfflinePacketConverter::convert() {
     RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"),
                 "Starting conversion of %zu bag(s)...", input_rosbags_.size());
     
-    // Process each bag file - create separate output for each
-    for (size_t bag_idx = 0; bag_idx < input_rosbags_.size(); ++bag_idx) {
-        const auto& bag_file = input_rosbags_[bag_idx];
-        
-        if (!rclcpp::ok()) {
-            RCLCPP_WARN(rclcpp::get_logger("OfflinePacketConverter"), "Conversion interrupted by user.");
-            break;
-        }
-        
-        std::filesystem::path input_bag_path(bag_file);
-        std::filesystem::path input_filename = input_bag_path.filename().stem();
-        std::string output_bag_file = output_bag_dir_ + "/" + getOutputBagFilename(input_filename.string());
+    std::string output_bag_file = output_bag_dir_;
 
-        RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"),
-                    "Processing bag %zu/%zu: %s -> %s",
-                    bag_idx + 1, input_rosbags_.size(),
-                    bag_file.c_str(), output_bag_file.c_str());
-        
-        writer_ = std::make_unique<rosbag2_cpp::Writer>();
-        rosbag2_storage::StorageOptions write_storage_options;
-        write_storage_options.uri = output_bag_file;
-        write_storage_options.storage_id = output_storage_id;
-        
-        writer_->open(write_storage_options, converter_options);
+    RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"),
+                "Processing bag dir: %s -> %s (splitting output at 500MB)",
+                input_bag_dir_.c_str(), output_bag_file.c_str());
 
-        // Create topic for point cloud
-        rosbag2_storage::TopicMetadata cloud_topic;
-        cloud_topic.name = output_lidar_topic_;
-        cloud_topic.type = "sensor_msgs/msg/PointCloud2";
-        cloud_topic.serialization_format = "cdr";
-        writer_->create_topic(cloud_topic);
-        
-        scan_counter_ = 0;
-        
-        // Process this bag
-        processSingleBag(bag_file, input_storage_id, converter_options);
-        RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"), "Converted scans %d", scan_counter_);
-        
-        writer_.reset();
-    }
+    writer_ = std::make_unique<rosbag2_cpp::Writer>();
+    rosbag2_storage::StorageOptions write_storage_options;
+    write_storage_options.uri = output_bag_file;
+    write_storage_options.storage_id = output_storage_id;
+
+    write_storage_options.max_bagfile_size = 500ULL * 1024ULL * 1024ULL;
+    write_storage_options.max_cache_size = 64ULL * 1024ULL * 1024ULL;
+
+    writer_->open(write_storage_options, converter_options);
+
+    rosbag2_storage::TopicMetadata cloud_topic;
+    cloud_topic.name = output_lidar_topic_;
+    cloud_topic.type = "sensor_msgs/msg/PointCloud2";
+    cloud_topic.serialization_format = "cdr";
+    writer_->create_topic(cloud_topic);
+
+    scan_counter_ = 0;
+
+    processSingleBag(input_bag_dir_, input_storage_id, converter_options);
+
+    RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"), "Converted scans %d", scan_counter_);
+    writer_.reset();
     if (!rclcpp::ok()) {
         RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"), "Conversion interrupted by user.");
     } else {
@@ -142,18 +130,30 @@ bool OfflinePacketConverter::getBagsFromDir(const std::string& bag_dir, std::vec
 }
 
 bool OfflinePacketConverter::isMcapBag(const std::string& bag_path) {
-    std::filesystem::path bag(bag_path);
-    
-    if (std::filesystem::is_regular_file(bag_path)) {
-        std::string ext = bag.extension().string();
-        if (ext == ".mcap") {
-            return true;
-        }
-        else{
-            throw std::runtime_error("Cannot detect bag format for: " + bag_path);
-        }
+  std::filesystem::path p(bag_path);
+
+  if (std::filesystem::is_directory(p)) {
+    // rosbag2 bag dir should contain metadata.yaml
+    auto metadata = p / "metadata.yaml";
+    if (!std::filesystem::exists(metadata)) {
+      throw std::runtime_error("Bag directory missing metadata.yaml: " + bag_path);
     }
-    throw std::runtime_error("Bag path is not a file: " + bag_path);
+
+    // confirm at least one .mcap exists
+    for (const auto& entry : std::filesystem::directory_iterator(p)) {
+      if (entry.is_regular_file() && entry.path().extension() == ".mcap") {
+        return true;
+      }
+    }
+    throw std::runtime_error("No .mcap files found in bag directory: " + bag_path);
+  }
+
+  if (std::filesystem::is_regular_file(p)) {
+    if (p.extension() == ".mcap") return true;
+    throw std::runtime_error("Cannot detect bag format for: " + bag_path);
+  }
+
+  throw std::runtime_error("Bag path is not a file or directory: " + bag_path);
 }
 
 void OfflinePacketConverter::processSingleBag(const std::string& bag_file, 
@@ -251,7 +251,7 @@ void OfflinePacketConverter::processSingleBag(const std::string& bag_file,
     }
 }
 
-std::string OfflinePacketConverter::getOutputBagDir(const std::string& input_bag_dir) {
+std::string OfflinePacketConverter::getBagsFromDirName(const std::string& input_bag_dir) {
     std::filesystem::path input_dir(input_bag_dir);
     std::filesystem::path parent_dir = input_dir.parent_path();
     if (parent_dir.empty()) {
@@ -266,16 +266,7 @@ std::string OfflinePacketConverter::getOutputBagDir(const std::string& input_bag
                     output_dir.string().c_str());
         throw std::runtime_error("Output directory already exists: " + output_dir.string());
     }
-    std::filesystem::create_directories(output_dir);
-    if (!std::filesystem::exists(output_dir)) {
-        throw std::runtime_error("Output directory does not exist: " + output_dir.string());
-    }
     return output_dir.string();
-}
-
-std::string OfflinePacketConverter::getOutputBagFilename(const std::string& input_bag_filename) {
-    std::string output_filename = replaceRawWithPointcloud(input_bag_filename);
-    return output_filename;
 }
 
 std::string OfflinePacketConverter::replaceRawWithPointcloud(const std::string& name) {
@@ -289,7 +280,7 @@ std::string OfflinePacketConverter::replaceRawWithPointcloud(const std::string& 
     return output_name;
 }
 
-OfflinePacketConverter::~OfflinePacketConverter() {
+OfflinePacketConverter::~OfflinePacketConverter(){
 }
 
 int main(int argc, char** argv) {
