@@ -40,6 +40,7 @@ class OfflinePacketConverter {
         void processSingleBag(const std::string& bag_file, 
                             const std::string& storage_id,
                             const rosbag2_cpp::ConverterOptions& converter_options);
+        void processCompleteScan(const ouster::LidarScan& scan);
         
         void setupProcessors();
 
@@ -56,26 +57,19 @@ class OfflinePacketConverter {
         ouster::sensor::sensor_info loadOusterMetadata(const std::string& metadata_file);
 
         std::string input_bag_dir_;
-        std::string output_bag_dir_;
+        std::string robot_name_;
+        std::string timestamp_mode_;
         std::string input_lidar_topic_;
         std::string output_lidar_topic_;
         std::string frame_id_;
-        std::string robot_name_;
-        std::string timestamp_mode_;
-        
-        std::vector<std::string> input_rosbags_; 
+        std::string output_bag_dir_;
+        std::vector<std::string> input_rosbags_;
         
         ouster::sensor::sensor_info ouster_metadata_;
-        ouster_ros::LidarPacketHandler::HandlerType lidar_packet_handler_;
         
         std::unique_ptr<rosbag2_cpp::Writer> writer_;
         int64_t current_timestamp_;
         int scan_counter_ = 0;
-        
-        // Synchronization primitives for backpressure
-        std::mutex processing_mutex_;
-        std::condition_variable processing_cv_;
-        bool processing_complete_;
 
 };
 #endif  // OUSTER_ROS__OFFLINE_PACKET_CONVERTER_H_

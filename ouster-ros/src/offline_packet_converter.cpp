@@ -17,6 +17,16 @@
 #include <algorithm>
 #include <chrono>
 
+// ADD THESE:
+#include <ouster/lidar_scan.h>
+#include <ouster/impl/cartesian.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include "ouster_ros/os_point.h"
+#include <pcl_conversions/pcl_conversions.h>
+#include "point_cloud_compose.h"
+#include "point_meta_helpers.h"
+
 OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir, 
                           const std::string& ouster_metadata_file,
                           const std::string& robot_name,
@@ -24,7 +34,6 @@ OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir,
     :   input_bag_dir_(input_bag_dir),
         robot_name_(robot_name),
         timestamp_mode_(timestamp_mode),
-        processing_complete_(false),
         input_rosbags_({}) {
 
     ouster_metadata_ = loadOusterMetadata(ouster_metadata_file);
@@ -33,6 +42,7 @@ OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir,
     frame_id_ = robot_name_ + "/os_sensor";
     output_lidar_topic_ = "/" + robot_name_ + "/raw_velodyne_points";
     output_bag_dir_ = getOutputBagDir(input_bag_dir_);
+
     if (!getBagsFromDir(input_bag_dir_, input_rosbags_)) {
         RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
                      "No bag files found in input directory: %s", input_bag_dir_.c_str());
@@ -42,7 +52,6 @@ OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir,
                 "Initialized OfflinePacketConverter with input bag: %s, output bag: %s, lidar topic: %s, frame id: %s",
                 input_bag_dir_.c_str(), output_bag_dir_.c_str(),
                 input_lidar_topic_.c_str(), frame_id_.c_str());
-    setupProcessors();
 }
 
 void OfflinePacketConverter::convert() {
@@ -157,7 +166,6 @@ bool OfflinePacketConverter::isMcapBag(const std::string& bag_path) {
 void OfflinePacketConverter::processSingleBag(const std::string& bag_file, 
                            const std::string& storage_id,
                            const rosbag2_cpp::ConverterOptions& converter_options) {
-    // Setup reader for this bag
     rosbag2_cpp::Reader reader;
     rosbag2_storage::StorageOptions storage_options;
     storage_options.uri = bag_file;
@@ -165,32 +173,124 @@ void OfflinePacketConverter::processSingleBag(const std::string& bag_file,
     
     reader.open(storage_options, converter_options);
     
-    // Process messages from this bag
+    // Create ScanBatcher - THIS is the key!
+    ouster::ScanBatcher batcher(ouster_metadata_);
+    
+    // Create LidarScan to accumulate data
+    ouster::LidarScan scan(
+        ouster_metadata_.format.columns_per_frame,
+        ouster_metadata_.format.pixels_per_column,
+        ouster_metadata_.format.udp_profile_lidar
+    );
+    
     while (reader.has_next() && rclcpp::ok()) {
         auto bag_message = reader.read_next();
         
-        // Only process lidar packets, ignore everything else
         if (bag_message->topic_name == input_lidar_topic_) {
-            // Process lidar packets
+            // Deserialize packet
             rclcpp::SerializedMessage serialized_msg(*bag_message->serialized_data);
             ouster_sensor_msgs::msg::PacketMsg packet_msg;
             
             rclcpp::Serialization<ouster_sensor_msgs::msg::PacketMsg> serialization;
             serialization.deserialize_message(&serialized_msg, &packet_msg);
             
+            // Convert to Ouster LidarPacket
             ouster::sensor::LidarPacket lidar_packet(packet_msg.buf.size());
             memcpy(lidar_packet.buf.data(), packet_msg.buf.data(), packet_msg.buf.size());
             lidar_packet.host_timestamp = static_cast<uint64_t>(bag_message->recv_timestamp);
             
             current_timestamp_ = bag_message->recv_timestamp;
             
-            // Process packet through handler
-            if (lidar_packet_handler_) {
-                lidar_packet_handler_(lidar_packet);
+            bool scan_complete = batcher(lidar_packet, scan);
+            
+            if (scan_complete) {
+                processCompleteScan(scan);                
             }
-            waitForProcessing();
         }
     }
+}
+
+void OfflinePacketConverter::processCompleteScan(const ouster::LidarScan& scan) {
+    static ouster::XYZLut lut = ouster::make_xyz_lut(ouster_metadata_);
+    
+    auto points_double = ouster::cartesian(scan, lut);
+    ouster::PointsF points = points_double.cast<float>();
+    
+    size_t h = ouster_metadata_.format.pixels_per_column;
+    size_t w = ouster_metadata_.format.columns_per_frame;
+    
+    pcl::PointCloud<ouster_ros::Point> pcl_cloud;
+    pcl_cloud.header.frame_id = frame_id_;
+    pcl_cloud.header.stamp = current_timestamp_ / 1000;
+    
+    // ✅ Pre-allocate organized cloud (like official code)
+    pcl_cloud.width = w;
+    pcl_cloud.height = h;
+    pcl_cloud.is_dense = false;
+    pcl_cloud.points.resize(w * h);
+    
+    auto range = scan.field<uint32_t>(ouster::sensor::ChanField::RANGE);
+    auto signal = scan.field<uint16_t>(ouster::sensor::ChanField::SIGNAL);
+    auto reflectivity = scan.field<uint16_t>(ouster::sensor::ChanField::REFLECTIVITY);
+    auto near_ir = scan.field<uint16_t>(ouster::sensor::ChanField::NEAR_IR);
+    auto timestamps = scan.timestamp();
+
+    // ✅ Fill ALL points (like official code - no skipping)
+    for (size_t u = 0; u < w; u++) {
+        for (size_t v = 0; v < h; v++) {
+            size_t xyz_idx = u * h + v;
+            size_t cloud_idx = v * w + u;  // Row-major
+            
+            ouster_ros::Point& point = pcl_cloud.points[cloud_idx];
+            
+            // ✅ Always write XYZ from cartesian (like official code)
+            point.x = points(xyz_idx, 0);
+            point.y = points(xyz_idx, 1);
+            point.z = points(xyz_idx, 2);
+            
+            // ✅ Always write other fields (like official code)
+            point.intensity = static_cast<float>(signal(v, u));
+
+            point.t = static_cast<uint32_t>(timestamps[u]);
+            point.reflectivity = reflectivity(v, u);
+            point.ring = static_cast<uint16_t>(v);
+            point.ambient = near_ir(v, u);
+            point.range = range(v, u);
+            point.column = static_cast<uint16_t>(u);  // You can keep this
+        }
+    }
+    
+    // Debug for first few scans
+    if (scan_counter_ < 3) {
+        size_t valid = 0, invalid = 0;
+        for (size_t i = 0; i < pcl_cloud.points.size(); i++) {
+            if (pcl_cloud.points[i].range == 0) invalid++;
+            else valid++;
+        }
+        RCLCPP_INFO(rclcpp::get_logger("OfflinePacketConverter"),
+                   "Scan %d: %zu valid, %zu invalid points",
+                   scan_counter_, valid, invalid);
+    }
+    
+    sensor_msgs::msg::PointCloud2 cloud_msg;
+    pcl::toROSMsg(pcl_cloud, cloud_msg);
+    cloud_msg.header.stamp = rclcpp::Time(current_timestamp_);
+    cloud_msg.header.frame_id = frame_id_;
+    
+    rclcpp::Serialization<sensor_msgs::msg::PointCloud2> cloud_serialization;
+    auto serialized_cloud = std::make_shared<rclcpp::SerializedMessage>();
+    cloud_serialization.serialize_message(&cloud_msg, serialized_cloud.get());
+    
+    auto cloud_bag_msg = std::make_shared<rosbag2_storage::SerializedBagMessage>();
+    cloud_bag_msg->topic_name = output_lidar_topic_;
+    cloud_bag_msg->serialized_data = 
+        std::shared_ptr<rcutils_uint8_array_t>(
+            &serialized_cloud->get_rcl_serialized_message(),
+            [serialized_cloud](rcutils_uint8_array_t*) {});
+    cloud_bag_msg->recv_timestamp = current_timestamp_;
+    
+    writer_->write(cloud_bag_msg);
+    scan_counter_++;
 }
 
 std::string OfflinePacketConverter::getOutputBagDir(const std::string& input_bag_dir) {
@@ -231,87 +331,7 @@ std::string OfflinePacketConverter::replaceRawWithPointcloud(const std::string& 
     return output_name;
 }
 
-void OfflinePacketConverter::setupProcessors() {    
-    std::vector<ouster_ros::LidarScanProcessor> processors;
-    
-    // Setup point cloud processor (same parameters as os_cloud_node)
-    /*
-    TODO: We probably want a better way to provide these default parameters,
-    so when we change these while launching the ros2 driver, they are also applied here.
-    One way is to have a config file or command line args for these parameters,
-    which will be same between driver and offline converter.
-    */
-
-    bool organized = true;
-    bool destagger = true;
-    uint32_t min_range = 0;      // in mm
-    uint32_t max_range = 1000000; // in mm (1000m)
-    int v_reduction = 1;
-    std::string mask_path = "";
-    std::string point_type = "original";
-    
-    processors.push_back(
-        ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
-            point_type,
-            ouster_metadata_, 
-            frame_id_,
-            false,
-            organized, 
-            destagger, 
-            min_range, 
-            max_range, 
-            v_reduction, 
-            mask_path,
-            [this](ouster_ros::PointCloudProcessor_OutputType msgs) {
-                this->handlePointClouds(msgs);
-            }
-        )
-    );
-    
-    // Create lidar packet handler with smaller queue (reduce buffering)
-    double ptp_utc_tai_offset = 0.0; // it's zero in the ouster.launch.py file by default.
-    double min_scan_valid_columns_ratio = 0.0; // it's zero by default.
-    
-    lidar_packet_handler_ = ouster_ros::LidarPacketHandler::create(
-        ouster_metadata_, 
-        processors, 
-        timestamp_mode_,
-        static_cast<int64_t>(ptp_utc_tai_offset * 1e+9),
-        min_scan_valid_columns_ratio
-    );
-}
-    
-void OfflinePacketConverter::waitForProcessing() {
-    std::unique_lock<std::mutex> lock(processing_mutex_);
-    // Give processing thread time to catch up
-    processing_cv_.wait_for(lock, std::chrono::milliseconds(1));
-}
-
-void OfflinePacketConverter::handlePointClouds(ouster_ros::PointCloudProcessor_OutputType msgs) {
-    std::lock_guard<std::mutex> lock(processing_mutex_);
-    
-    // Process each return (usually just one for standard processing)
-    for (size_t i = 0; i < msgs.size(); ++i) {
-        auto& cloud_msg = msgs[i];
-        
-        // Serialize and write point cloud to bag
-        rclcpp::Serialization<sensor_msgs::msg::PointCloud2> cloud_serialization;
-        auto serialized_cloud = std::make_shared<rclcpp::SerializedMessage>();
-        cloud_serialization.serialize_message(cloud_msg.get(), serialized_cloud.get());
-        
-        auto cloud_bag_msg = std::make_shared<rosbag2_storage::SerializedBagMessage>();
-        cloud_bag_msg->topic_name = output_lidar_topic_;
-        cloud_bag_msg->serialized_data = 
-            std::shared_ptr<rcutils_uint8_array_t>(
-                &serialized_cloud->get_rcl_serialized_message(),
-                [serialized_cloud](rcutils_uint8_array_t*) {});
-        cloud_bag_msg->recv_timestamp = current_timestamp_;
-        
-        writer_->write(cloud_bag_msg);
-        
-        scan_counter_++;
-    }
-    processing_cv_.notify_all();
+OfflinePacketConverter::~OfflinePacketConverter() {
 }
 
 int main(int argc, char** argv) {
