@@ -41,10 +41,8 @@ OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir,
                 "Initialized OfflinePacketConverter with input bag: %s, output bag: %s, lidar topic: %s, frame id: %s",
                 input_bag_dir_.c_str(), output_bag_dir_.c_str(),
                 input_lidar_topic_.c_str(), frame_id_.c_str());
-    bool is_mcap = validateInputBags(input_bag_dir_);
+    bool is_mcap = validateInputBag(input_bag_dir_);
     if (!is_mcap) {
-        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
-                     "Only MCAP bag format is supported.");
         throw std::runtime_error("Unsupported input bag format.");
     }
 }
@@ -94,8 +92,8 @@ void OfflinePacketConverter::convert() {
     write_storage_options.uri = output_bag_file;
     write_storage_options.storage_id = output_storage_id;
 
-    write_storage_options.max_bagfile_size = 500ULL * 1024ULL * 1024ULL;
-    write_storage_options.max_cache_size = 64ULL * 1024ULL * 1024ULL;
+    write_storage_options.max_bagfile_size = MAX_BAGFILE_SIZE_BYTES;
+    write_storage_options.max_cache_size = MAX_CACHE_SIZE_BYTES;
 
     writer_->open(write_storage_options, converter_options);
 
@@ -141,7 +139,7 @@ ouster::sensor::sensor_info OfflinePacketConverter::loadOusterMetadata(const std
     }
 }
 
-bool OfflinePacketConverter::validateInputBags(const std::string& bag_dir) {
+bool OfflinePacketConverter::validateInputBag(const std::string& bag_dir) {
   std::filesystem::path bag(bag_dir);
 
   if (std::filesystem::is_directory(bag)) {
@@ -149,7 +147,7 @@ bool OfflinePacketConverter::validateInputBags(const std::string& bag_dir) {
     if (!std::filesystem::exists(metadata)) {
         RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
                      "Bag directory missing metadata.yaml: %s", bag.string().c_str());
-        throw std::runtime_error("Bag directory missing metadata.yaml: " + bag.string());
+        return false;
     }
 
     // confirm at least one .mcap exists
@@ -160,12 +158,12 @@ bool OfflinePacketConverter::validateInputBags(const std::string& bag_dir) {
     }
     RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
                  "No .mcap files found in bag directory: %s", bag.string().c_str());
-    throw std::runtime_error("No .mcap files found in bag directory: " + bag.string());
+    return false;
   }
   else {
     RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
                  "Bag path is not a directory: %s", bag_dir.c_str());
-    throw std::runtime_error("Bag path is not a directory: " + bag.string());
+    return false;
   }
 }
 
@@ -261,7 +259,7 @@ void OfflinePacketConverter::writePointClouds(ouster_ros::PointCloudProcessor_Ou
             &serialized->get_rcl_serialized_message(),
             [serialized](rcutils_uint8_array_t*) {});
         bag_msg->recv_timestamp = cloud_msg->header.stamp.nanosec + 
-                                 cloud_msg->header.stamp.sec * 1000000000ULL;
+                                 cloud_msg->header.stamp.sec * NANOSECONDS_PER_SECOND;
         
         writer_->write(bag_msg);
         scan_counter_++;
