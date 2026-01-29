@@ -22,13 +22,12 @@
 
 OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir, 
                           const std::string& ouster_metadata_file,
-                          const std::string& robot_name,
-                          const std::string& timestamp_mode)
+                          const std::string& robot_name)
     :   input_bag_dir_(input_bag_dir),
         robot_name_(robot_name),
-        timestamp_mode_(timestamp_mode)
-    {
-    if (!validateInputs(input_bag_dir_, robot_name_, timestamp_mode_)) {
+        timestamp_mode_("TIME_FROM_PTP_1588")
+{
+    if (!validateInputs(input_bag_dir_, robot_name_)) {
         throw std::runtime_error("Invalid inputs to OfflinePacketConverter.");
     }
     ouster_metadata_ = loadOusterMetadata(ouster_metadata_file);
@@ -48,9 +47,7 @@ OfflinePacketConverter::OfflinePacketConverter(const std::string& input_bag_dir,
 }
 
 bool OfflinePacketConverter::validateInputs(const std::string& input_bag_dir,
-                    const std::string& robot_name,
-                    const std::string& timestamp_mode) {
-    
+                    const std::string& robot_name) {
     if (input_bag_dir.empty()) {
         RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
                      "Input bag directory cannot be empty.");
@@ -59,13 +56,6 @@ bool OfflinePacketConverter::validateInputs(const std::string& input_bag_dir,
     if (robot_name.empty()) {
         RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
                      "Robot name cannot be empty.");
-        return false;
-    }
-    if (timestamp_mode != "TIME_FROM_PTP_1588")
-    {
-        RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
-                     "Unsupported timestamp mode: %s. Only TIME_FROM_PTP_1588 is supported.",
-                     timestamp_mode.c_str());
         return false;
     }
     return true;
@@ -167,12 +157,12 @@ bool OfflinePacketConverter::validateInputBag(const std::string& bag_dir) {
   }
 }
 
-void OfflinePacketConverter::processBag(const std::string& bag_file, 
+void OfflinePacketConverter::processBag(const std::string& bag_dir, 
                            const std::string& storage_id,
                            const rosbag2_cpp::ConverterOptions& converter_options) {
     rosbag2_cpp::Reader reader;
     rosbag2_storage::StorageOptions storage_options;
-    storage_options.uri = bag_file;
+    storage_options.uri = bag_dir;
     storage_options.storage_id = storage_id;
     
     reader.open(storage_options, converter_options);
