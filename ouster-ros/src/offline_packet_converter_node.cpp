@@ -77,8 +77,8 @@ void OfflinePacketConverterNode::setupParameters() {
   point_type_ = this->get_parameter("point_type").as_string();
   organized_ = this->get_parameter("organized").as_bool();
   destagger_ = this->get_parameter("destagger").as_bool();
-  min_range_mm_ = this->get_parameter("min_range").as_double();
-  max_range_mm_ = this->get_parameter("max_range").as_double();
+  min_range_mm_ = this->get_parameter("min_range").as_double() * 1e3; // it is in meters, convert to mm
+  max_range_mm_ = this->get_parameter("max_range").as_double() * 1e3; // it is in meters, convert to mm
   mask_path_ = this->get_parameter("mask_path").as_string();
   rows_step_ = this->get_parameter("v_reduction").as_int();
   apply_lidar_to_sensor_transform_ = true;
@@ -271,8 +271,8 @@ void OfflinePacketConverterNode::writePointClouds(ouster_ros::PointCloudProcesso
 
     auto bag_msg = std::make_shared<rosbag2_storage::SerializedBagMessage>();
     bag_msg->topic_name = output_lidar_topic_;
-    bag_msg->serialized_data = std::shared_ptr<rcutils_uint8_array_t>(&serialized->get_rcl_serialized_message(),
-                                                                      [serialized](rcutils_uint8_array_t*) {});
+    bag_msg->serialized_data =
+        std::shared_ptr<rcutils_uint8_array_t>(serialized, &serialized->get_rcl_serialized_message());
     bag_msg->recv_timestamp = cloud_msg->header.stamp.nanosec + cloud_msg->header.stamp.sec * NANOSECONDS_PER_SECOND;
 
     writer_->write(bag_msg);
