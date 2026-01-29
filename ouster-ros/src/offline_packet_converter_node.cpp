@@ -1,15 +1,14 @@
 #include "offline_packet_converter_node.h"
 
+#include "point_cloud_processor_factory.h"
+
+#include <ouster/lidar_scan.h>
 #include <ouster_sensor_msgs/msg/packet_msg.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rosbag2_cpp/reader.hpp>
 #include <rosbag2_cpp/writer.hpp>
 #include <rosbag2_storage/storage_options.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-
-#include <ouster/lidar_scan.h>
-
-#include "point_cloud_processor_factory.h"
 
 #include <algorithm>
 #include <chrono>
