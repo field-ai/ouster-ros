@@ -40,7 +40,9 @@ private:
    * @param timestamp_mode The timestamp mode.
    * @return true if the inputs are valid, false otherwise.
    */
-  bool validateInputs(const std::string& input_bag_dir, const std::string& robot_name);
+  bool validateInputs(const std::string& input_bag_dir,
+                      const std::string& robot_name,
+                      const std::string& ouster_metadata_filepath);
 
   /**
    * @brief Validate the input bag file format.
