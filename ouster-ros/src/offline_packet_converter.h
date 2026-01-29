@@ -16,11 +16,9 @@ constexpr size_t MAX_BAGFILE_SIZE_BYTES = 500ULL * 1024ULL * 1024ULL;  // 500MB
 constexpr size_t MAX_CACHE_SIZE_BYTES = 64ULL * 1024ULL * 1024ULL;    // 64MB
 constexpr uint64_t NANOSECONDS_PER_SECOND = 1000000000ULL;
 
-class OfflinePacketConverter {
+class OfflinePacketConverter : public rclcpp::Node {
     public:
-        OfflinePacketConverter(const std::string& input_bag_dir, 
-                            const std::string& ouster_metadata_file,
-                            const std::string& robot_name);
+        explicit OfflinePacketConverter(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
         ~OfflinePacketConverter();
     
         /**
@@ -30,6 +28,11 @@ class OfflinePacketConverter {
         void convert();
 
     private:
+        
+        /**
+         * @brief Setup ROS parameters.
+         */
+        void setupParameters();
 
         /**
          * @brief Validate the input parameters.
@@ -134,5 +137,16 @@ class OfflinePacketConverter {
          * @brief Counter for the number of scans processed.
          */
         int scan_counter_ = 0;
+        
+        /** 
+         * @brief pointcloud procesor params
+        */
+        std::string point_type_;
+        bool organized_;
+        bool destagger_;
+        double min_range_mm_;
+        double max_range_mm_;
+        int rows_step_;
+        std::string mask_path_;
 };
 #endif  // OUSTER_ROS__OFFLINE_PACKET_CONVERTER_H_
