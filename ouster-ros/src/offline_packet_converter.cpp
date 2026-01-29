@@ -184,11 +184,11 @@ void OfflinePacketConverter::processBag(const std::string& bag_file,
         ouster_metadata_.format.udp_profile_lidar
     );
     std::string point_type = "original"; // original = ouster_ros::Point
-    bool apply_lidar_to_sensor_transform = false;
+    bool apply_lidar_to_sensor_transform = true;
     bool organized = true;
     bool destagger = true;
-    int min_range_m = 0;
-    int max_range_m = 10000;
+    int min_range_mm = 0;
+    int max_range_mm = 10000000;
     int rows_step = 1;
     std::string mask_path = "";  
     auto point_cloud_processor = ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
@@ -198,8 +198,8 @@ void OfflinePacketConverter::processBag(const std::string& bag_file,
         apply_lidar_to_sensor_transform,    // apply_lidar_to_sensor_transform
         organized,                          // organized (512x128)
         destagger,                          // destagger (keep as-is, no destagger)
-        min_range_m,                        // min_range (m)
-        max_range_m,                        // max_range (m) (using default value)
+        min_range_mm,                        // min_range (mm)
+        max_range_mm,                        // max_range (mm) (using default value)
         rows_step,                          // rows_step (use all rows)
         mask_path,                          // mask_path (no mask)
         [this](ouster_ros::PointCloudProcessor_OutputType msgs) {
