@@ -1,5 +1,5 @@
-#ifndef OUSTER_ROS__OFFLINE_PACKET_CONVERTER_H_
-#define OUSTER_ROS__OFFLINE_PACKET_CONVERTER_H_
+#ifndef OUSTER_ROS__OFFLINE_PACKET_CONVERTER_NODE_H_
+#define OUSTER_ROS__OFFLINE_PACKET_CONVERTER_NODE_H_
 
 #include <rclcpp/rclcpp.hpp>
 #include <rosbag2_cpp/reader.hpp>
@@ -16,10 +16,10 @@ constexpr size_t MAX_BAGFILE_SIZE_BYTES = 500ULL * 1024ULL * 1024ULL;  // 500MB
 constexpr size_t MAX_CACHE_SIZE_BYTES = 64ULL * 1024ULL * 1024ULL;    // 64MB
 constexpr uint64_t NANOSECONDS_PER_SECOND = 1000000000ULL;
 
-class OfflinePacketConverter : public rclcpp::Node {
+class OfflinePacketConverterNode : public rclcpp::Node {
     public:
-        explicit OfflinePacketConverter(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
-        ~OfflinePacketConverter();
+        explicit OfflinePacketConverterNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+        ~OfflinePacketConverterNode();
     
         /**
          * @brief Convert the input bag file containing Ouster packets to a new bag file
@@ -148,5 +148,6 @@ class OfflinePacketConverter : public rclcpp::Node {
         double max_range_mm_;
         int rows_step_;
         std::string mask_path_;
+        std::string ouster_metadata_filepath_;
 };
-#endif  // OUSTER_ROS__OFFLINE_PACKET_CONVERTER_H_
+#endif  // OUSTER_ROS__OFFLINE_PACKET_CONVERTER_NODE_H_

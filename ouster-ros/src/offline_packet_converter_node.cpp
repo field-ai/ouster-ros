@@ -1,4 +1,4 @@
-#include "offline_packet_converter.h"
+#include "offline_packet_converter_node.h"
 
 #include <rclcpp/rclcpp.hpp>
 #include <rosbag2_cpp/reader.hpp>
@@ -20,19 +20,19 @@
 #include <string>
 #include <vector>
 
-OfflinePacketConverter::OfflinePacketConverter(const rclcpp::NodeOptions& options)
-    : Node("offline_packet_converter", options)
+OfflinePacketConverterNode::OfflinePacketConverterNode(const rclcpp::NodeOptions& options)
+    : Node("offline_packet_converter_node", options)
 {   
-   // Validate inputs
-    if (!validateInputs(input_bag_dir_, robot_name_)) {
-        throw std::runtime_error("Invalid inputs to OfflinePacketConverter.");
-    }
-
     // setup ros params
     setupParameters();
 
+   // Validate inputs
+    if (!validateInputs(input_bag_dir_, robot_name_)) {
+        throw std::runtime_error("Invalid inputs to OfflinePacketConverterNode.");
+    }
+
     // Load metadata
-    ouster_metadata_ = loadOusterMetadata(metadata_file);
+    ouster_metadata_ = loadOusterMetadata(ouster_metadata_filepath_);
 
     // Setup topics and paths
     input_lidar_topic_ = "/" + robot_name_ + "/ouster/lidar_packets";
@@ -53,7 +53,7 @@ OfflinePacketConverter::OfflinePacketConverter(const rclcpp::NodeOptions& option
     }
 }
 
-void OfflinePacketConverter::setupParameters() {
+void OfflinePacketConverterNode::setupParameters() {
     // Declare required parameters
     this->declare_parameter<std::string>("input_bag_dir", "");
     this->declare_parameter<std::string>("ouster_metadata_filepath", "");
@@ -70,7 +70,7 @@ void OfflinePacketConverter::setupParameters() {
 
     // Get parameter values
     input_bag_dir_ = this->get_parameter("input_bag_dir").as_string();
-    std::string metadata_file = this->get_parameter("ouster_metadata_filepath").as_string();
+    ouster_metadata_filepath_ = this->get_parameter("ouster_metadata_filepath").as_string();
     robot_name_ = this->get_parameter("robot_namespace").as_string();
     
     point_type_ = this->get_parameter("point_type").as_string();
@@ -83,7 +83,7 @@ void OfflinePacketConverter::setupParameters() {
     
     RCLCPP_INFO(this->get_logger(), "Parameters loaded:");
     RCLCPP_INFO(this->get_logger(), "  Input bag: %s", input_bag_dir_.c_str());
-    RCLCPP_INFO(this->get_logger(), "  Metadata: %s", metadata_file.c_str());
+    RCLCPP_INFO(this->get_logger(), "  Metadata: %s", ouster_metadata_filepath_.c_str());
     RCLCPP_INFO(this->get_logger(), "  Robot: %s", robot_name_.c_str());
     RCLCPP_INFO(this->get_logger(), "  point_type: %s", point_type_.c_str());
     RCLCPP_INFO(this->get_logger(), "  organized: %d, destagger: %d", organized_, destagger_);
@@ -91,7 +91,7 @@ void OfflinePacketConverter::setupParameters() {
     RCLCPP_INFO(this->get_logger(), "  v_reduction: %d", rows_step_);
 }
 
-bool OfflinePacketConverter::validateInputs(const std::string& input_bag_dir,
+bool OfflinePacketConverterNode::validateInputs(const std::string& input_bag_dir,
                     const std::string& robot_name) {
     if (input_bag_dir.empty()) {
         RCLCPP_ERROR(this->get_logger(),
@@ -106,7 +106,7 @@ bool OfflinePacketConverter::validateInputs(const std::string& input_bag_dir,
     return true;
 }
 
-void OfflinePacketConverter::convert() {
+void OfflinePacketConverterNode::convert() {
     
     std::string input_storage_id = "mcap";
     std::string output_storage_id = input_storage_id;
@@ -152,7 +152,7 @@ void OfflinePacketConverter::convert() {
     }
 }
 
-ouster::sensor::sensor_info OfflinePacketConverter::loadOusterMetadata(const std::string& metadata_file) {
+ouster::sensor::sensor_info OfflinePacketConverterNode::loadOusterMetadata(const std::string& metadata_file) {
     std::ifstream ifs(metadata_file);
     if (!ifs.is_open()) {
         RCLCPP_ERROR(this->get_logger(),
@@ -173,7 +173,7 @@ ouster::sensor::sensor_info OfflinePacketConverter::loadOusterMetadata(const std
     }
 }
 
-bool OfflinePacketConverter::validateInputBag(const std::string& bag_dir) {
+bool OfflinePacketConverterNode::validateInputBag(const std::string& bag_dir) {
   std::filesystem::path bag(bag_dir);
 
   if (std::filesystem::is_directory(bag)) {
@@ -201,7 +201,7 @@ bool OfflinePacketConverter::validateInputBag(const std::string& bag_dir) {
   }
 }
 
-void OfflinePacketConverter::processBag(const std::string& bag_dir, 
+void OfflinePacketConverterNode::processBag(const std::string& bag_dir, 
                            const std::string& storage_id,
                            const rosbag2_cpp::ConverterOptions& converter_options) {
     rosbag2_cpp::Reader reader;
@@ -277,7 +277,7 @@ void OfflinePacketConverter::processBag(const std::string& bag_dir,
     }
 }
 
-void OfflinePacketConverter::writePointClouds(ouster_ros::PointCloudProcessor_OutputType& msgs) {
+void OfflinePacketConverterNode::writePointClouds(ouster_ros::PointCloudProcessor_OutputType& msgs) {
     for (auto& cloud_msg : msgs) {
         rclcpp::Serialization<sensor_msgs::msg::PointCloud2> serialization;
         auto serialized = std::make_shared<rclcpp::SerializedMessage>();
@@ -296,7 +296,7 @@ void OfflinePacketConverter::writePointClouds(ouster_ros::PointCloudProcessor_Ou
     }
 }
 
-std::string OfflinePacketConverter::getOutputBagDir(const std::string& input_bag_dir) {
+std::string OfflinePacketConverterNode::getOutputBagDir(const std::string& input_bag_dir) {
     std::filesystem::path input_dir(input_bag_dir);
     std::filesystem::path parent_dir = input_dir.parent_path();
     if (parent_dir.empty()) {
@@ -314,7 +314,7 @@ std::string OfflinePacketConverter::getOutputBagDir(const std::string& input_bag
     return output_dir.string();
 }
 
-std::string OfflinePacketConverter::replaceRawWithPointcloud(const std::string& name) {
+std::string OfflinePacketConverterNode::replaceRawWithPointcloud(const std::string& name) {
     std::string output_name = name;
     const std::string raw_suffix = "_raw_";
     const std::string pointcloud_suffix = "_pointcloud_";
@@ -325,7 +325,7 @@ std::string OfflinePacketConverter::replaceRawWithPointcloud(const std::string& 
     return output_name;
 }
 
-OfflinePacketConverter::~OfflinePacketConverter(){
+OfflinePacketConverterNode::~OfflinePacketConverterNode(){
     if (writer_) {
         writer_.reset();
     }
@@ -334,7 +334,7 @@ OfflinePacketConverter::~OfflinePacketConverter(){
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     
-    auto node = std::make_shared<OfflinePacketConverter>();
+    auto node = std::make_shared<OfflinePacketConverterNode>();
     
     std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
     try {
