@@ -1,16 +1,24 @@
 #ifndef OUSTER_ROS__OFFLINE_PACKET_CONVERTER_NODE_H_
 #define OUSTER_ROS__OFFLINE_PACKET_CONVERTER_NODE_H_
 
-#include "point_cloud_processor.h"
-
-#include <ouster/types.h>
 #include <rclcpp/rclcpp.hpp>
 #include <rosbag2_cpp/reader.hpp>
 #include <rosbag2_cpp/writer.hpp>
 #include <rosbag2_storage/storage_options.hpp>
 
-#include <memory>
+#include "point_cloud_processor.h"
+#include "point_cloud_processor_factory.h"
+#include <ouster/lidar_scan.h>
+#include <ouster/types.h>
+#include <ouster_sensor_msgs/msg/packet_msg.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 #include <string>
+
+#include <algorithm>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <memory>
 
 constexpr size_t MAX_BAGFILE_SIZE_BYTES = 500ULL * 1024ULL * 1024ULL; // 500MB
 constexpr size_t MAX_CACHE_SIZE_BYTES = 64ULL * 1024ULL * 1024ULL;    // 64MB
