@@ -18,6 +18,6 @@
     organized: true
     destagger: true
     min_range: 0.0
-    max_range: 100000.0
+    max_range: 1000.0
     v_reduction: 1
     mask_path: ''
