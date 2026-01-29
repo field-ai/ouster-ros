@@ -80,6 +80,7 @@ void OfflinePacketConverterNode::setupParameters() {
     max_range_mm_ = this->get_parameter("max_range").as_double();
     mask_path_ = this->get_parameter("mask_path").as_string();
     rows_step_ = this->get_parameter("v_reduction").as_int();
+    apply_lidar_to_sensor_transform_ = true;
     
     RCLCPP_INFO(this->get_logger(), "Parameters loaded:");
     RCLCPP_INFO(this->get_logger(), "  Input bag: %s", input_bag_dir_.c_str());
@@ -223,7 +224,7 @@ void OfflinePacketConverterNode::processBag(const std::string& bag_dir,
         point_type_,
         ouster_metadata_,
         frame_id_,
-        false,  // apply_lidar_to_sensor_transform
+        apply_lidar_to_sensor_transform_,  // apply_lidar_to_sensor_transform
         organized_,
         destagger_,
         min_range_mm_,

@@ -149,5 +149,6 @@ class OfflinePacketConverterNode : public rclcpp::Node {
         int rows_step_;
         std::string mask_path_;
         std::string ouster_metadata_filepath_;
+        bool apply_lidar_to_sensor_transform_; 
 };
 #endif  // OUSTER_ROS__OFFLINE_PACKET_CONVERTER_NODE_H_
