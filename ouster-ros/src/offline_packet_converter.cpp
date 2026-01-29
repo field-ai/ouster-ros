@@ -206,6 +206,7 @@ void OfflinePacketConverter::processBag(const std::string& bag_file,
             this->writePointClouds(msgs);
         }
     );
+    bool is_first_scan = true;
     while (reader.has_next() && rclcpp::ok()) {
         auto bag_message = reader.read_next();
         if (bag_message->topic_name == input_lidar_topic_) {
@@ -235,6 +236,10 @@ void OfflinePacketConverter::processBag(const std::string& bag_file,
                     RCLCPP_ERROR(rclcpp::get_logger("OfflinePacketConverter"),
                                  "Unsupported timestamp mode, only TIME_FROM_PTP_1588 is supported, got %s", timestamp_mode_.c_str());
                     throw std::runtime_error("Unsupported timestamp mode, only TIME_FROM_PTP_1588 is supported, got " + timestamp_mode_);
+                }
+                if (is_first_scan) {
+                    is_first_scan = false;
+                    continue;  // skip first scan to avoid partial scans
                 }
                 rclcpp::Time scan_msg_ts(scan_ts);
                 point_cloud_processor(
