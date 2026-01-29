@@ -26,7 +26,7 @@ OfflinePacketConverterNode::OfflinePacketConverterNode(const rclcpp::NodeOptions
   setupParameters();
 
   // Validate inputs
-  if (!validateInputs(input_bag_dir_, robot_name_)) {
+  if (!validateInputs(input_bag_dir_, robot_name_, ouster_metadata_filepath_)) {
     throw std::runtime_error("Invalid inputs to OfflinePacketConverterNode.");
   }
 
@@ -48,8 +48,7 @@ OfflinePacketConverterNode::OfflinePacketConverterNode(const rclcpp::NodeOptions
               frame_id_.c_str());
 
   // Validate bag
-  bool is_mcap = validateInputBag(input_bag_dir_);
-  if (!is_mcap) {
+  if (!validateInputBag(input_bag_dir_)) {
     throw std::runtime_error("Unsupported input bag format.");
   }
 }
@@ -94,13 +93,19 @@ void OfflinePacketConverterNode::setupParameters() {
   RCLCPP_INFO(this->get_logger(), "  v_reduction: %d", rows_step_);
 }
 
-bool OfflinePacketConverterNode::validateInputs(const std::string& input_bag_dir, const std::string& robot_name) {
+bool OfflinePacketConverterNode::validateInputs(const std::string& input_bag_dir,
+                                                const std::string& robot_name,
+                                                const std::string& ouster_metadata_filepath) {
   if (input_bag_dir.empty()) {
     RCLCPP_ERROR(this->get_logger(), "Input bag directory cannot be empty.");
     return false;
   }
   if (robot_name.empty()) {
     RCLCPP_ERROR(this->get_logger(), "Robot name cannot be empty.");
+    return false;
+  }
+  if (ouster_metadata_filepath.empty()) {
+    RCLCPP_ERROR(this->get_logger(), "Ouster metadata filepath cannot be empty.");
     return false;
   }
   return true;
@@ -254,6 +259,7 @@ void OfflinePacketConverterNode::processBag(const std::string& bag_dir,
         }
         if (is_first_scan) {
           is_first_scan = false;
+          // The first scan might be partial, so we skip it to avoid issues.
           continue;
         }
         rclcpp::Time scan_msg_ts(scan_ts);
@@ -261,6 +267,7 @@ void OfflinePacketConverterNode::processBag(const std::string& bag_dir,
       }
     }
   }
+  reader.close();
 }
 
 void OfflinePacketConverterNode::writePointClouds(ouster_ros::PointCloudProcessor_OutputType& msgs) {
@@ -273,8 +280,7 @@ void OfflinePacketConverterNode::writePointClouds(ouster_ros::PointCloudProcesso
     bag_msg->topic_name = output_lidar_topic_;
     bag_msg->serialized_data =
         std::shared_ptr<rcutils_uint8_array_t>(serialized, &serialized->get_rcl_serialized_message());
-    bag_msg->recv_timestamp = cloud_msg->header.stamp.nanosec + cloud_msg->header.stamp.sec * NANOSECONDS_PER_SECOND;
-
+    bag_msg->recv_timestamp = cloud_msg->header.stamp.sec * NANOSECONDS_PER_SECOND + cloud_msg->header.stamp.nanosec;
     writer_->write(bag_msg);
     scan_counter_++;
   }
