@@ -1,15 +1,14 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
-from launch.substitutions import LaunchConfiguration
-from launch.substitution import Substitution
-from typing import List
-import os
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
     input_bag_dir_arg = DeclareLaunchArgument(
         'input_bag_dir',
-        description='Path to input bag directory or file'
+        description='Path to input bag directory'
     )
     
     ouster_metadata_fp = DeclareLaunchArgument(
@@ -22,40 +21,35 @@ def generate_launch_description():
         description='Robot name for topic namespacing'
     )
     
-    timestamp_mode_arg = DeclareLaunchArgument(
-        'timestamp_mode',
-        default_value='TIME_FROM_PTP_1588',
-        description='Timestamp mode for lidar packets'
+    params_file_arg = DeclareLaunchArgument(
+        'params_file',
+        default_value=PathJoinSubstitution([
+            FindPackageShare('ouster_ros'),
+            'config',
+            'fieldai_params.yaml'
+        ]),
+        description='Path to parameter YAML file'
     )
     
-    class ExpandPath(Substitution):
-        def __init__(self, path_sub):
-            super().__init__()
-            self.path_sub = path_sub
-            
-        def describe(self):
-            return f'ExpandPath({self.path_sub.describe()})'
-            
-        def perform(self, context):
-            path = self.path_sub.perform(context)
-            return os.path.expanduser(path)
-    
-    converter_exe = ExecuteProcess(
-        cmd=[
-            'ros2', 'run', 'ouster_ros', 'offline_packet_converter',
-            ExpandPath(LaunchConfiguration('input_bag_dir')),
-            ExpandPath(LaunchConfiguration('ouster_metadata_filepath')),
-            LaunchConfiguration('robot_namespace'),
-            LaunchConfiguration('timestamp_mode')
-        ],
+    converter_node = Node(
+        package='ouster_ros',
+        executable='offline_packet_converter',
+        name='offline_packet_converter',
         output='screen',
-        shell=False
+        parameters=[
+            LaunchConfiguration('params_file'),
+            {
+                'input_bag_dir': LaunchConfiguration('input_bag_dir'),
+                'ouster_metadata_filepath': LaunchConfiguration('ouster_metadata_filepath'),
+                'robot_namespace': LaunchConfiguration('robot_namespace'),
+            }
+        ]
     )
     
     return LaunchDescription([
         input_bag_dir_arg,
         ouster_metadata_fp,
         robot_namespace_arg,
-        timestamp_mode_arg,
-        converter_exe
+        params_file_arg,
+        converter_node
     ])
