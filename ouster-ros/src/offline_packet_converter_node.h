@@ -2,6 +2,7 @@
 #define OUSTER_ROS__OFFLINE_PACKET_CONVERTER_NODE_H_
 
 #include "point_cloud_processor.h"
+
 #include <ouster/types.h>
 #include <rclcpp/rclcpp.hpp>
 #include <rosbag2_cpp/reader.hpp>
@@ -10,7 +11,6 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 constexpr size_t MAX_BAGFILE_SIZE_BYTES = 500ULL * 1024ULL * 1024ULL; // 500MB
 constexpr size_t MAX_CACHE_SIZE_BYTES = 64ULL * 1024ULL * 1024ULL;    // 64MB
