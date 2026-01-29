@@ -33,8 +33,8 @@ def generate_launch_description():
     
     converter_node = Node(
         package='ouster_ros',
-        executable='offline_packet_converter',
-        name='offline_packet_converter',
+        executable='offline_packet_converter_node',
+        name='offline_packet_converter_node',
         output='screen',
         parameters=[
             LaunchConfiguration('params_file'),

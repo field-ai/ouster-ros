@@ -195,11 +195,11 @@ rclcpp_components_register_node(os_pcap_component
 endif()
 
 # ===== Executables =====
-add_executable(offline_packet_converter
-  src/offline_packet_converter.cpp
+add_executable(offline_packet_converter_node
+  src/offline_packet_converter_node.cpp
 )
 
-target_include_directories(offline_packet_converter
+target_include_directories(offline_packet_converter_node
   PUBLIC
     ${_ouster_ros_INCLUDE_DIRS}
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -208,12 +208,12 @@ target_include_directories(offline_packet_converter
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(offline_packet_converter
+target_link_libraries(offline_packet_converter_node
   ouster_ros_library
   ${OUSTER_TARGET_LINKS}
 )
 
-ament_target_dependencies(offline_packet_converter
+ament_target_dependencies(offline_packet_converter_node
   rclcpp
   rosbag2_cpp
   rosbag2_storage
@@ -261,7 +261,7 @@ endif()
 
 install(
   TARGETS
-    offline_packet_converter
+    offline_packet_converter_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
