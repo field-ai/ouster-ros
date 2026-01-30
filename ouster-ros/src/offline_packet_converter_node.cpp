@@ -6,7 +6,9 @@ OfflinePacketConverterNode::OfflinePacketConverterNode(const rclcpp::NodeOptions
   setupParameters();
 
   // initialize paths and validate
-  init();
+  if (!init()) {
+    throw std::runtime_error("OfflinePacketConverterNode initialization failed");
+  }
 
   RCLCPP_INFO(this->get_logger(),
               "Initialized with input bag: %s, output bag: %s, lidar topic: %s, frame id: %s",
@@ -16,11 +18,12 @@ OfflinePacketConverterNode::OfflinePacketConverterNode(const rclcpp::NodeOptions
               frame_id_.c_str());
 }
 
-void OfflinePacketConverterNode::init() {
+bool OfflinePacketConverterNode::init() {
   std::filesystem::path base_dir_fp(base_dir_);
 
   if (!std::filesystem::exists(base_dir_fp) || !std::filesystem::is_directory(base_dir_fp)) {
-    throw std::runtime_error("Input data directory does not exist: " + base_dir_);
+    RCLCPP_ERROR(this->get_logger(), "Base directory does not exist: %s", base_dir_.c_str());
+    return false;
   }
 
   // Find ouster_metadata.json in log/ subdirectory
@@ -28,20 +31,25 @@ void OfflinePacketConverterNode::init() {
   std::filesystem::path metadata_path = log_dir / "ouster_metadata.json";
 
   if (!std::filesystem::exists(metadata_path)) {
-    throw std::runtime_error("Ouster metadata not found at: " + metadata_path.string());
+    RCLCPP_ERROR(this->get_logger(), "Ouster metadata file not found at: %s", metadata_path.string().c_str());
+    return false;
   }
+
+  ouster_metadata_filepath_ = metadata_path.string();
 
   // Find rosbag folder containing "_lidar_" in rosbag2/ subdirectory
   std::filesystem::path rosbag2_dir = base_dir_fp / "rosbag2";
 
   if (!std::filesystem::exists(rosbag2_dir) || !std::filesystem::is_directory(rosbag2_dir)) {
-    throw std::runtime_error("rosbag2 directory not found at: " + rosbag2_dir.string());
+    RCLCPP_ERROR(this->get_logger(), "rosbag2 directory does not exist: %s", rosbag2_dir.string().c_str());
+    return false;
   }
 
   auto lidar_bags = findDirsByRegex(rosbag2_dir.string(), LIDAR_BAG_PATTERN);
 
   if (lidar_bags.empty()) {
-    throw std::runtime_error("No rosbag directory matching '*_lidar_*' found in: " + rosbag2_dir.string());
+    RCLCPP_ERROR(this->get_logger(), "No lidar rosbag directory found in: %s", rosbag2_dir.string().c_str());
+    return false;
   }
 
   if (lidar_bags.size() > 1) {
@@ -55,15 +63,15 @@ void OfflinePacketConverterNode::init() {
 
   RCLCPP_INFO(this->get_logger(), "Using input bag directory: %s", input_bag_dir_.c_str());
 
-  ouster_metadata_filepath_ = metadata_path.string();
-
   if (!validateInputs(input_bag_dir_, robot_name_, ouster_metadata_filepath_)) {
-    throw std::runtime_error("Failed to validate inputs got ");
+    RCLCPP_ERROR(this->get_logger(), "Input validation failed.");
+    return false;
   }
 
   // Validate bag dir
-  if (!validateInputBag(input_bag_dir_)) {
-    throw std::runtime_error("Unsupported input bag format.");
+  if (!validateInputBagDir(input_bag_dir_)) {
+    RCLCPP_ERROR(this->get_logger(), "Unsupported input bag format.");
+    return false;
   }
 
   ouster_metadata_ = loadOusterMetadata(ouster_metadata_filepath_);
@@ -81,8 +89,9 @@ void OfflinePacketConverterNode::init() {
   if (std::filesystem::exists(output_bag_dir_)) {
     RCLCPP_ERROR(
         this->get_logger(), "Output directory %s already exists. Files may be overwritten.", output_bag_dir_.c_str());
-    throw std::runtime_error("Output directory already exists: " + output_bag_dir_);
+    return false;
   }
+  return true;
 }
 
 std::map<int, std::string> OfflinePacketConverterNode::findDirsByRegex(const std::string& search_dir,
@@ -97,18 +106,8 @@ std::map<int, std::string> OfflinePacketConverterNode::findDirsByRegex(const std
     std::string dir_name = entry.path().filename().string();
     std::smatch match;
 
-    if (std::regex_match(dir_name, match, dir_regex) && match.size() > 1) {
-      int idx = result.size(); // Default index if no capture group
-
-      // Use second capture group as index if available
-      if (match.size() > 2) {
-        try {
-          idx = std::stoi(match[2].str());
-        } catch (...) {
-          // Keep default index on parse failure
-        }
-      }
-
+    if (std::regex_match(dir_name, match, dir_regex)) {
+      int idx = static_cast<int>(result.size()); // Sequential index
       result.try_emplace(idx, entry.path().string());
     }
   }
@@ -133,7 +132,6 @@ void OfflinePacketConverterNode::setupParameters() {
   // Get parameter values
   base_dir_ = this->get_parameter("base_dir").as_string();
   robot_name_ = this->get_parameter("robot_namespace").as_string();
-
   point_type_ = this->get_parameter("point_type").as_string();
   organized_ = this->get_parameter("organized").as_bool();
   destagger_ = this->get_parameter("destagger").as_bool();
@@ -240,7 +238,7 @@ ouster::sensor::sensor_info OfflinePacketConverterNode::loadOusterMetadata(const
   }
 }
 
-bool OfflinePacketConverterNode::validateInputBag(const std::string& bag_dir) {
+bool OfflinePacketConverterNode::validateInputBagDir(const std::string& bag_dir) {
   std::filesystem::path bag(bag_dir);
 
   if (std::filesystem::is_directory(bag)) {

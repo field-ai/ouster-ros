@@ -42,7 +42,11 @@ public:
   void convert();
 
 private:
-  void init();
+  /**
+   * @brief Initialize the node by setting up paths and validating inputs.
+   * @return true if initialization is successful, false otherwise.
+   */
+  bool init();
 
   /**
    * @brief Setup ROS parameters.
@@ -65,7 +69,7 @@ private:
    * @param bag_dir The input bag directory.
    * @return true if the bag file format is supported, false otherwise.
    */
-  bool validateInputBag(const std::string& bag_dir);
+  bool validateInputBagDir(const std::string& bag_dir);
 
   /**
    * @brief Process the input bag.
