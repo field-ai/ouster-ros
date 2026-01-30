@@ -159,7 +159,7 @@ void OfflinePacketConverterNode::setupParameters() {
 }
 
 void OfflinePacketConverterNode::convert() {
-  if (!processBag()) {
+  if (!process()) {
     throw std::runtime_error("Failed to process bag.");
     return;
   }
@@ -233,7 +233,7 @@ uint64_t OfflinePacketConverterNode::extractScanTimestamp(const ouster::LidarSca
   return (it != ts_v.data() + ts_v.size()) ? *it : fallback_timestamp;
 }
 
-bool OfflinePacketConverterNode::processBag() {
+bool OfflinePacketConverterNode::process() {
   const std::string storage_id = "mcap";
 
   // setup writer

@@ -61,12 +61,9 @@ private:
   bool validateInputBagDir(const std::string& bag_dir);
 
   /**
-   * @brief Process the input bag.
-   * @param bag_dir The input bag directory.
-   * @param storage_id The storage ID.
-   * @param converter_options The converter options.
+   * @brief Process the bag dir.
    */
-  bool processBag();
+  bool process();
 
   /**
    * @brief Replace "raw" with "pointcloud" in the given filename.
@@ -90,16 +87,23 @@ private:
 
   /**
    * @brief Find directories matching a regex pattern within a search directory.
+   * @param search_dir The directory to search in.
+   * @param pattern The regex pattern to match directory names.
+   * @return A map of matched directory indices to their paths.
    */
   std::map<int, std::string> findDirsByRegex(const std::string& search_dir, const std::string& pattern);
 
   /**
    * @brief Check if the given path is a directory.
+   * @param dir_path The path to check.
+   * @return true if the path is a directory, false otherwise.
    */
   bool isDirectory(const std::filesystem::path& dir_path);
 
   /**
    * @brief Check if the given path is a regular file.
+   * @param file_path The path to check.
+   * @return true if the path is a regular file, false otherwise.
    */
   bool isFile(const std::filesystem::path& file_path);
 
