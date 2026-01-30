@@ -18,37 +18,50 @@ OfflinePacketConverterNode::OfflinePacketConverterNode(const rclcpp::NodeOptions
               frame_id_.c_str());
 }
 
-bool OfflinePacketConverterNode::init() {
-  std::filesystem::path base_dir_fp(base_dir_);
+bool OfflinePacketConverterNode::isDirectory(const std::filesystem::path& dir_path) {
+  if (!std::filesystem::exists(dir_path) || !std::filesystem::is_directory(dir_path)) {
+    RCLCPP_ERROR(this->get_logger(), "Base directory does not exist: %s", dir_path.c_str());
+    return false;
+  }
+  return true;
+}
 
-  if (!std::filesystem::exists(base_dir_fp) || !std::filesystem::is_directory(base_dir_fp)) {
-    RCLCPP_ERROR(this->get_logger(), "Base directory does not exist: %s", base_dir_.c_str());
+bool OfflinePacketConverterNode::isFile(const std::filesystem::path& file_path) {
+  if (!std::filesystem::exists(file_path) || !std::filesystem::is_regular_file(file_path)) {
+    RCLCPP_ERROR(this->get_logger(), "File does not exist: %s", file_path.string().c_str());
+    return false;
+  }
+  return true;
+}
+
+bool OfflinePacketConverterNode::init() {
+  // Load and validate base directory
+  std::filesystem::path base_dir_fp(base_dir_);
+  if (!isDirectory(base_dir_fp)) {
     return false;
   }
 
-  // Find ouster_metadata.json in log/ subdirectory
+  // load and validate ouster metadata file
   std::filesystem::path log_dir = base_dir_fp / "log";
   std::filesystem::path metadata_path = log_dir / "ouster_metadata.json";
 
-  if (!std::filesystem::exists(metadata_path)) {
-    RCLCPP_ERROR(this->get_logger(), "Ouster metadata file not found at: %s", metadata_path.string().c_str());
+  if (!isFile(metadata_path)) {
     return false;
   }
 
   ouster_metadata_filepath_ = metadata_path.string();
+  ouster_metadata_ = loadOusterMetadata(ouster_metadata_filepath_);
 
-  // Find rosbag folder containing "_lidar_" in rosbag2/ subdirectory
+  // Load and validate rosbag2 directory
   std::filesystem::path rosbag2_dir = base_dir_fp / "rosbag2";
 
-  if (!std::filesystem::exists(rosbag2_dir) || !std::filesystem::is_directory(rosbag2_dir)) {
-    RCLCPP_ERROR(this->get_logger(), "rosbag2 directory does not exist: %s", rosbag2_dir.string().c_str());
+  if (!isDirectory(rosbag2_dir)) {
     return false;
   }
 
   auto lidar_bags = findDirsByRegex(rosbag2_dir.string(), LIDAR_BAG_PATTERN);
 
   if (lidar_bags.empty()) {
-    RCLCPP_ERROR(this->get_logger(), "No lidar rosbag directory found in: %s", rosbag2_dir.string().c_str());
     return false;
   }
 
@@ -59,25 +72,18 @@ bool OfflinePacketConverterNode::init() {
                 lidar_bags.begin()->second.c_str());
   }
 
+  // choose the first bag dir found
   input_bag_dir_ = lidar_bags.begin()->second;
-
-  RCLCPP_INFO(this->get_logger(), "Using input bag directory: %s", input_bag_dir_.c_str());
-
-  if (!validateInputs(input_bag_dir_, robot_name_, ouster_metadata_filepath_)) {
-    RCLCPP_ERROR(this->get_logger(), "Input validation failed.");
-    return false;
-  }
 
   // Validate bag dir
   if (!validateInputBagDir(input_bag_dir_)) {
-    RCLCPP_ERROR(this->get_logger(), "Unsupported input bag format.");
     return false;
   }
 
-  ouster_metadata_ = loadOusterMetadata(ouster_metadata_filepath_);
+  RCLCPP_INFO(this->get_logger(), "Using input bag directory: %s", input_bag_dir_.c_str());
 
-  std::filesystem::path bag_dir(input_bag_dir_);
-  std::string output_dir_name = replaceRawWithPointcloud(bag_dir.filename().string());
+  // Setup output bag dir
+  std::string output_dir_name = replaceRawWithPointcloud(std::filesystem::path(input_bag_dir_).filename().string());
   output_bag_dir_ = rosbag2_dir / output_dir_name;
 
   // Setup topics and paths
@@ -91,6 +97,7 @@ bool OfflinePacketConverterNode::init() {
         this->get_logger(), "Output directory %s already exists. Files may be overwritten.", output_bag_dir_.c_str());
     return false;
   }
+
   return true;
 }
 
@@ -151,69 +158,11 @@ void OfflinePacketConverterNode::setupParameters() {
   RCLCPP_INFO(this->get_logger(), "  v_reduction: %d", rows_step_);
 }
 
-bool OfflinePacketConverterNode::validateInputs(const std::string& input_bag_dir,
-                                                const std::string& robot_name,
-                                                const std::string& ouster_metadata_filepath) {
-  if (input_bag_dir.empty()) {
-    RCLCPP_ERROR(this->get_logger(), "Input bag directory cannot be empty.");
-    return false;
-  }
-  if (robot_name.empty()) {
-    RCLCPP_ERROR(this->get_logger(), "Robot name cannot be empty.");
-    return false;
-  }
-  if (ouster_metadata_filepath.empty()) {
-    RCLCPP_ERROR(this->get_logger(), "Ouster metadata filepath cannot be empty.");
-    return false;
-  }
-  return true;
-}
-
 void OfflinePacketConverterNode::convert() {
-  std::string input_storage_id = "mcap";
-  std::string output_storage_id = input_storage_id;
-
-  rosbag2_cpp::ConverterOptions converter_options;
-  converter_options.input_serialization_format = "cdr";
-  converter_options.output_serialization_format = "cdr";
-
-  std::string output_bag_file = output_bag_dir_;
-
-  RCLCPP_INFO(this->get_logger(),
-              "Processing bag dir: %s -> %s (splitting output at 500MB)",
-              input_bag_dir_.c_str(),
-              output_bag_file.c_str());
-
-  // Setup record options with compression
-  rosbag2_transport::RecordOptions record_options{};
-  record_options.compression_mode = "message";
-  record_options.compression_format = "zstd";
-
-  // Create writer with compression support
-  writer_.reset();
-  writer_ = rosbag2_transport::ReaderWriterFactory::make_writer(record_options);
-
-  rosbag2_storage::StorageOptions write_storage_options;
-  write_storage_options.uri = output_bag_file;
-  write_storage_options.storage_id = output_storage_id;
-  write_storage_options.max_bagfile_size = MAX_BAGFILE_SIZE_BYTES;
-  write_storage_options.max_cache_size = MAX_CACHE_SIZE_BYTES;
-
-  writer_->open(write_storage_options, converter_options);
-
-  rosbag2_storage::TopicMetadata cloud_topic;
-  cloud_topic.name = output_lidar_topic_;
-  cloud_topic.type = "sensor_msgs/msg/PointCloud2";
-  cloud_topic.serialization_format = "cdr";
-  writer_->create_topic(cloud_topic);
-
-  scan_counter_ = 0;
-
-  processBag(input_bag_dir_, input_storage_id, converter_options);
-
-  writer_.reset();
-
-  RCLCPP_INFO(this->get_logger(), "Converted scans %d", scan_counter_);
+  if (!processBag()) {
+    throw std::runtime_error("Failed to process bag.");
+    return;
+  }
 
   if (!rclcpp::ok()) {
     RCLCPP_INFO(this->get_logger(), "Conversion interrupted by user.");
@@ -262,22 +211,78 @@ bool OfflinePacketConverterNode::validateInputBagDir(const std::string& bag_dir)
   }
 }
 
-void OfflinePacketConverterNode::processBag(const std::string& bag_dir,
-                                            const std::string& storage_id,
-                                            const rosbag2_cpp::ConverterOptions& converter_options) {
+ouster::sensor::LidarPacket
+OfflinePacketConverterNode::deserializeLidarPacket(const rosbag2_storage::SerializedBagMessage& bag_message) {
+  rclcpp::SerializedMessage serialized_msg(*bag_message.serialized_data);
+  ouster_sensor_msgs::msg::PacketMsg packet_msg;
+
+  rclcpp::Serialization<ouster_sensor_msgs::msg::PacketMsg> serialization;
+  serialization.deserialize_message(&serialized_msg, &packet_msg);
+
+  ouster::sensor::LidarPacket lidar_packet(packet_msg.buf.size());
+  std::memcpy(lidar_packet.buf.data(), packet_msg.buf.data(), packet_msg.buf.size());
+  lidar_packet.host_timestamp = static_cast<uint64_t>(bag_message.recv_timestamp);
+
+  return lidar_packet;
+}
+
+uint64_t OfflinePacketConverterNode::extractScanTimestamp(const ouster::LidarScan& scan, uint64_t fallback_timestamp) {
+  auto ts_v = scan.timestamp();
+  auto it = std::find_if(ts_v.data(), ts_v.data() + ts_v.size(), [](uint64_t t) { return t != 0; });
+
+  return (it != ts_v.data() + ts_v.size()) ? *it : fallback_timestamp;
+}
+
+bool OfflinePacketConverterNode::processBag() {
+  const std::string storage_id = "mcap";
+
+  // setup writer
+  rosbag2_cpp::ConverterOptions converter_options;
+  converter_options.input_serialization_format = "cdr";
+  converter_options.output_serialization_format = "cdr";
+
+  RCLCPP_INFO(this->get_logger(),
+              "Processing bag dir: %s -> %s (splitting output at 500MB)",
+              input_bag_dir_.c_str(),
+              output_bag_dir_.c_str());
+
+  // Setup record options for compression
+  rosbag2_transport::RecordOptions record_options{};
+  record_options.compression_mode = "message";
+  record_options.compression_format = "zstd";
+
+  writer_.reset();
+  writer_ = rosbag2_transport::ReaderWriterFactory::make_writer(record_options);
+
+  rosbag2_storage::StorageOptions write_storage_options;
+  write_storage_options.uri = output_bag_dir_;
+  write_storage_options.storage_id = storage_id;
+  write_storage_options.max_bagfile_size = MAX_BAGFILE_SIZE_BYTES;
+  write_storage_options.max_cache_size = MAX_CACHE_SIZE_BYTES;
+
+  writer_->open(write_storage_options, converter_options);
+
+  rosbag2_storage::TopicMetadata cloud_topic;
+  cloud_topic.name = output_lidar_topic_;
+  cloud_topic.type = "sensor_msgs/msg/PointCloud2";
+  cloud_topic.serialization_format = "cdr";
+  writer_->create_topic(cloud_topic);
+
+  // setup reader
   rosbag2_cpp::Reader reader;
   rosbag2_storage::StorageOptions storage_options;
-  storage_options.uri = bag_dir;
+  storage_options.uri = input_bag_dir_;
   storage_options.storage_id = storage_id;
 
   reader.open(storage_options, converter_options);
+
+  // setup ouster processing pipeline
   ouster::ScanBatcher batcher(ouster_metadata_);
 
   ouster::LidarScan scan(ouster_metadata_.format.columns_per_frame,
                          ouster_metadata_.format.pixels_per_column,
                          ouster_metadata_.format.udp_profile_lidar);
 
-  // Use member variables
   auto point_cloud_processor = ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
       point_type_,
       ouster_metadata_,
@@ -294,45 +299,30 @@ void OfflinePacketConverterNode::processBag(const std::string& bag_dir,
   bool is_first_scan = true;
   while (reader.has_next() && rclcpp::ok()) {
     auto bag_message = reader.read_next();
-    if (bag_message->topic_name == input_lidar_topic_) {
-      rclcpp::SerializedMessage serialized_msg(*bag_message->serialized_data);
-      ouster_sensor_msgs::msg::PacketMsg packet_msg;
-
-      rclcpp::Serialization<ouster_sensor_msgs::msg::PacketMsg> serialization;
-      serialization.deserialize_message(&serialized_msg, &packet_msg);
-
-      ouster::sensor::LidarPacket lidar_packet(packet_msg.buf.size());
-      memcpy(lidar_packet.buf.data(), packet_msg.buf.data(), packet_msg.buf.size());
-      lidar_packet.host_timestamp = static_cast<uint64_t>(bag_message->recv_timestamp);
-
-      if (batcher(lidar_packet, scan)) {
-        uint64_t scan_ts;
-        auto ts_v = scan.timestamp();
-        if (timestamp_mode_ == "TIME_FROM_PTP_1588") {
-          auto idx = std::find_if(ts_v.data(), ts_v.data() + ts_v.size(), [](uint64_t h) { return h != 0; });
-          if (idx != ts_v.data() + ts_v.size()) {
-            scan_ts = static_cast<uint64_t>(*idx);
-          } else {
-            scan_ts = lidar_packet.host_timestamp;
-          }
-        } else {
-          RCLCPP_ERROR(this->get_logger(),
-                       "Unsupported timestamp mode, only TIME_FROM_PTP_1588 is supported, got %s",
-                       timestamp_mode_.c_str());
-          throw std::runtime_error("Unsupported timestamp mode, only TIME_FROM_PTP_1588 is supported, got " +
-                                   timestamp_mode_);
-        }
-        if (is_first_scan) {
-          is_first_scan = false;
-          // The first scan might be partial, so we skip it to avoid issues.
-          continue;
-        }
-        rclcpp::Time scan_msg_ts(scan_ts);
-        point_cloud_processor(scan, scan_ts, scan_msg_ts);
-      }
+    if (bag_message->topic_name != input_lidar_topic_) {
+      continue;
     }
+
+    auto lidar_packet = deserializeLidarPacket(*bag_message);
+
+    if (!batcher(lidar_packet, scan)) {
+      // incomplete scan, skipping. We only want completed scans.
+      continue;
+    }
+
+    if (is_first_scan) {
+      is_first_scan = false;
+      // The first scan might be partial, so we skip it to avoid issues.
+      continue;
+    }
+
+    uint64_t scan_ts = extractScanTimestamp(scan, lidar_packet.host_timestamp);
+
+    point_cloud_processor(scan, scan_ts, rclcpp::Time(scan_ts));
   }
   reader.close();
+  writer_.reset();
+  return true;
 }
 
 void OfflinePacketConverterNode::writePointClouds(ouster_ros::PointCloudProcessor_OutputType& msgs) {
@@ -345,9 +335,9 @@ void OfflinePacketConverterNode::writePointClouds(ouster_ros::PointCloudProcesso
     bag_msg->topic_name = output_lidar_topic_;
     bag_msg->serialized_data =
         std::shared_ptr<rcutils_uint8_array_t>(serialized, &serialized->get_rcl_serialized_message());
-    bag_msg->recv_timestamp = cloud_msg->header.stamp.sec * NANOSECONDS_PER_SECOND + cloud_msg->header.stamp.nanosec;
+    bag_msg->recv_timestamp =
+        static_cast<uint64_t>(cloud_msg->header.stamp.sec) * NANOSECONDS_PER_SECOND + cloud_msg->header.stamp.nanosec;
     writer_->write(bag_msg);
-    scan_counter_++;
   }
 }
 
