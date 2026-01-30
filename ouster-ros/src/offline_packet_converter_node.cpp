@@ -138,8 +138,6 @@ bool OfflinePacketConverterNode::setupReaderWriter() {
 
   // // Setup writer with compression
   rosbag2_transport::RecordOptions record_options{};
-  // record_options.compression_mode = "file";
-  // record_options.compression_format = "message";
 
   rosbag2_storage::StorageOptions write_storage_options;
   write_storage_options.uri = output_bag_dir_;
