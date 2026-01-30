@@ -54,17 +54,6 @@ private:
   void setupParameters();
 
   /**
-   * @brief Validate the input parameters.
-   * @param input_bag_dir The input bag directory.
-   * @param robot_name The robot name.
-   * @param timestamp_mode The timestamp mode.
-   * @return true if the inputs are valid, false otherwise.
-   */
-  bool validateInputs(const std::string& input_bag_dir,
-                      const std::string& robot_name,
-                      const std::string& ouster_metadata_filepath);
-
-  /**
    * @brief Validate the input bag file format.
    * @param bag_dir The input bag directory.
    * @return true if the bag file format is supported, false otherwise.
@@ -77,9 +66,7 @@ private:
    * @param storage_id The storage ID.
    * @param converter_options The converter options.
    */
-  void processBag(const std::string& bag_dir,
-                  const std::string& storage_id,
-                  const rosbag2_cpp::ConverterOptions& converter_options);
+  bool processBag();
 
   /**
    * @brief Replace "raw" with "pointcloud" in the given filename.
@@ -105,6 +92,31 @@ private:
    * @brief Find directories matching a regex pattern within a search directory.
    */
   std::map<int, std::string> findDirsByRegex(const std::string& search_dir, const std::string& pattern);
+
+  /**
+   * @brief Check if the given path is a directory.
+   */
+  bool isDirectory(const std::filesystem::path& dir_path);
+
+  /**
+   * @brief Check if the given path is a regular file.
+   */
+  bool isFile(const std::filesystem::path& file_path);
+
+  /**
+   * @brief Deserialize a LidarPacket from a SerializedBagMessage.
+   * @param bag_message The serialized bag message.
+   * @return The deserialized LidarPacket.
+   */
+  ouster::sensor::LidarPacket deserializeLidarPacket(const rosbag2_storage::SerializedBagMessage& bag_message);
+
+  /**
+   * @brief Extract the scan timestamp from a LidarScan.
+   * @param scan The LidarScan object.
+   * @param fallback_timestamp The fallback timestamp to use if no valid timestamp is found.
+   * @return The extracted scan timestamp.
+   */
+  uint64_t extractScanTimestamp(const ouster::LidarScan& scan, uint64_t fallback_timestamp);
 
   /**
    * @brief Input base directory path.
@@ -155,11 +167,6 @@ private:
    * @brief Writer for the output bag file.
    */
   std::unique_ptr<rosbag2_cpp::Writer> writer_;
-
-  /**
-   * @brief Counter for the number of scans processed.
-   */
-  int scan_counter_ = 0;
 
   /**
    * @brief pointcloud procesor params
