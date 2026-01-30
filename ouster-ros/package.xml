@@ -14,8 +14,6 @@
   <depend>rclcpp_components</depend>
   <depend>class_loader</depend>
   <depend>rclcpp_lifecycle</depend>
-  <depend>rosbag2_cpp</depend>
-  <depend>rosbag2_storage</depend>
   <depend>std_msgs</depend>
   <depend>ouster_sensor_msgs</depend>
   <depend>sensor_msgs</depend>
@@ -27,6 +25,9 @@
   <depend>cv_bridge</depend>
   <depend>curl</depend>
   <depend>spdlog</depend>
+  <depend>rosbag2_cpp</depend>
+  <depend>rosbag2_storage</depend>
+  <depend>rosbag2_transport</depend>
 
   <build_depend>libjsoncpp-dev</build_depend>
   <build_depend>eigen</build_depend>

@@ -5,6 +5,8 @@
 #include <rosbag2_cpp/reader.hpp>
 #include <rosbag2_cpp/writer.hpp>
 #include <rosbag2_storage/storage_options.hpp>
+#include <rosbag2_transport/reader_writer_factory.hpp>
+#include <rosbag2_transport/record_options.hpp>
 
 #include "point_cloud_processor.h"
 #include "point_cloud_processor_factory.h"
@@ -18,11 +20,15 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <memory>
+#include <regex>
 
 constexpr size_t MAX_BAGFILE_SIZE_BYTES = 500ULL * 1024ULL * 1024ULL; // 500MB
 constexpr size_t MAX_CACHE_SIZE_BYTES = 64ULL * 1024ULL * 1024ULL;    // 64MB
 constexpr uint64_t NANOSECONDS_PER_SECOND = 1000000000ULL;
+constexpr const char* LIDAR_BAG_PATTERN = "(.*)_lidar_(.*)";
+constexpr const char* LIDAR_POINTCLOUD_REPLACE = "$1_lidar_pointcloud_$2";
 
 class OfflinePacketConverterNode : public rclcpp::Node {
 public:
@@ -36,6 +42,8 @@ public:
   void convert();
 
 private:
+  void init();
+
   /**
    * @brief Setup ROS parameters.
    */
@@ -70,13 +78,6 @@ private:
                   const rosbag2_cpp::ConverterOptions& converter_options);
 
   /**
-   * @brief Get the output bag directory path based on the input bag directory.
-   * @param input_bag_dir The input bag directory.
-   * @return The output bag directory path.
-   */
-  std::string getOutputBagDir(const std::string& input_bag_dir);
-
-  /**
    * @brief Replace "raw" with "pointcloud" in the given filename.
    * @param filename The input filename.
    * @return The modified filename with "raw" replaced by "pointcloud".
@@ -95,6 +96,16 @@ private:
    * @param msgs The point cloud messages to write.
    */
   void writePointClouds(ouster_ros::PointCloudProcessor_OutputType& msgs);
+
+  /**
+   * @brief Find directories matching a regex pattern within a search directory.
+   */
+  std::map<int, std::string> findDirsByRegex(const std::string& search_dir, const std::string& pattern);
+
+  /**
+   * @brief Input base directory path.
+   */
+  std::string base_dir_;
 
   /**
    * @brief Input bag directory path.

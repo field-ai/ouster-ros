@@ -7,13 +7,8 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     input_bag_dir_arg = DeclareLaunchArgument(
-        'input_bag_dir',
+        'base_dir',
         description='Path to input bag directory'
-    )
-    
-    ouster_metadata_fp = DeclareLaunchArgument(
-        'ouster_metadata_filepath',
-        description='Path to Ouster metadata JSON file'
     )
     
     robot_namespace_arg = DeclareLaunchArgument(
@@ -39,8 +34,7 @@ def generate_launch_description():
         parameters=[
             LaunchConfiguration('params_file'),
             {
-                'input_bag_dir': LaunchConfiguration('input_bag_dir'),
-                'ouster_metadata_filepath': LaunchConfiguration('ouster_metadata_filepath'),
+                'base_dir': LaunchConfiguration('base_dir'),
                 'robot_namespace': LaunchConfiguration('robot_namespace'),
             }
         ]
@@ -48,7 +42,6 @@ def generate_launch_description():
     
     return LaunchDescription([
         input_bag_dir_arg,
-        ouster_metadata_fp,
         robot_namespace_arg,
         params_file_arg,
         converter_node

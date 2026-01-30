@@ -30,6 +30,7 @@ if(NOT OpenCV_LIBS)
 endif()
 find_package(rosbag2_cpp REQUIRED)          # Add this
 find_package(rosbag2_storage REQUIRED)      # Add this
+find_package(rosbag2_transport REQUIRED)
 
 # ==== Options ====
 add_compile_options(-Wall -Wextra)
@@ -220,6 +221,7 @@ ament_target_dependencies(offline_packet_converter_node
   sensor_msgs
   ouster_sensor_msgs
   pcl_conversions
+  rosbag2_transport
 )
 
 # ==== Test ====
