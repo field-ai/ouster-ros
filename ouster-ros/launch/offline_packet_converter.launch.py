@@ -3,6 +3,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+import os
 
 
 def generate_launch_description():
@@ -13,7 +14,8 @@ def generate_launch_description():
     
     robot_namespace_arg = DeclareLaunchArgument(
         'robot_namespace',
-        description='Robot name for topic namespacing'
+        description='Robot name for topic namespacing',
+        default_value=os.environ.get('ROBOT_NAME', 'robot1')
     )
     
     params_file_arg = DeclareLaunchArgument(
