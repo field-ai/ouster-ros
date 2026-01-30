@@ -49,6 +49,12 @@ private:
   bool init();
 
   /**
+   * @brief Setup the reader and writer for rosbag2.
+   * @return true if setup is successful, false otherwise.
+   */
+  bool setupReaderWriter();
+
+  /**
    * @brief Setup ROS parameters.
    */
   void setupParameters();
@@ -171,6 +177,16 @@ private:
    * @brief Writer for the output bag file.
    */
   std::unique_ptr<rosbag2_cpp::Writer> writer_;
+
+  /**
+   * @brief bag reader
+   */
+  std::unique_ptr<rosbag2_cpp::Reader> reader_;
+
+  /**
+   * @brief scan counter
+   */
+  int scan_counter_;
 
   /**
    * @brief pointcloud procesor params
