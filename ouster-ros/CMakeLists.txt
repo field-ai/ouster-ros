@@ -24,6 +24,7 @@ find_package(tf2_eigen REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 find_package(rosbag2_storage REQUIRED)
+find_package(rosbag2_transport REQUIRED)
 
 # ==== Options ====
 add_compile_options(-Wall -Wextra)
@@ -213,6 +214,7 @@ ament_target_dependencies(offline_packet_converter_node
   sensor_msgs
   ouster_sensor_msgs
   pcl_conversions
+  rosbag2_transport
 )
 
 # ==== Test ====
