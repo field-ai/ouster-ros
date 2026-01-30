@@ -8,7 +8,7 @@ import os
 
 def generate_launch_description():
     input_bag_dir_arg = DeclareLaunchArgument(
-        'base_dir',
+        'data_dir',
         description='Path to input bag directory'
     )
     
@@ -36,7 +36,7 @@ def generate_launch_description():
         parameters=[
             LaunchConfiguration('params_file'),
             {
-                'base_dir': LaunchConfiguration('base_dir'),
+                'data_dir': LaunchConfiguration('data_dir'),
                 'robot_namespace': LaunchConfiguration('robot_namespace'),
             }
         ]

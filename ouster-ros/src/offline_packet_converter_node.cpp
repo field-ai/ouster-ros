@@ -36,13 +36,13 @@ bool OfflinePacketConverterNode::isFile(const std::filesystem::path& file_path) 
 
 bool OfflinePacketConverterNode::init() {
   // Load and validate base directory
-  std::filesystem::path base_dir_fp(base_dir_);
-  if (!isDirectory(base_dir_fp)) {
+  std::filesystem::path data_dir_fp(data_dir_);
+  if (!isDirectory(data_dir_fp)) {
     return false;
   }
 
   // load and validate ouster metadata file
-  std::filesystem::path log_dir = base_dir_fp / "log";
+  std::filesystem::path log_dir = data_dir_fp / "log";
   std::filesystem::path metadata_path = log_dir / "ouster_metadata.json";
 
   if (!isFile(metadata_path)) {
@@ -53,7 +53,7 @@ bool OfflinePacketConverterNode::init() {
   ouster_metadata_ = loadOusterMetadata(ouster_metadata_filepath_);
 
   // Load and validate rosbag2 directory
-  std::filesystem::path rosbag2_dir = base_dir_fp / "rosbag2";
+  std::filesystem::path rosbag2_dir = data_dir_fp / "rosbag2";
 
   if (!isDirectory(rosbag2_dir)) {
     return false;
@@ -136,17 +136,16 @@ bool OfflinePacketConverterNode::setupReaderWriter() {
     return false;
   }
 
-  // Setup writer with compression
+  // // Setup writer with compression
   rosbag2_transport::RecordOptions record_options{};
-  record_options.compression_mode = "message";
-  record_options.compression_format = "zstd";
+  // record_options.compression_mode = "file";
+  // record_options.compression_format = "message";
 
   rosbag2_storage::StorageOptions write_storage_options;
   write_storage_options.uri = output_bag_dir_;
   write_storage_options.storage_id = storage_id;
+  write_storage_options.storage_preset_profile = "zstd_fast";
   write_storage_options.max_bagfile_size = MAX_BAGFILE_SIZE_BYTES;
-  write_storage_options.max_cache_size = MAX_CACHE_SIZE_BYTES;
-
   writer_.reset();
   writer_ = rosbag2_transport::ReaderWriterFactory::make_writer(record_options);
   writer_->open(write_storage_options, converter_options);
@@ -184,7 +183,7 @@ std::map<int, std::string> OfflinePacketConverterNode::findDirsByRegex(const std
 
 void OfflinePacketConverterNode::setupParameters() {
   // Declare required parameters
-  this->declare_parameter<std::string>("base_dir", "");
+  this->declare_parameter<std::string>("data_dir", "");
   this->declare_parameter<std::string>("robot_namespace", "");
 
   // Declare point cloud processor parameters (from fieldai_params.yaml)
@@ -197,7 +196,7 @@ void OfflinePacketConverterNode::setupParameters() {
   this->declare_parameter<int>("v_reduction", 1);
 
   // Get parameter values
-  base_dir_ = this->get_parameter("base_dir").as_string();
+  data_dir_ = this->get_parameter("data_dir").as_string();
   robot_name_ = this->get_parameter("robot_namespace").as_string();
   point_type_ = this->get_parameter("point_type").as_string();
   organized_ = this->get_parameter("organized").as_bool();
@@ -210,7 +209,7 @@ void OfflinePacketConverterNode::setupParameters() {
 
   // printing to log.
   RCLCPP_INFO(this->get_logger(), "Parameters loaded:");
-  RCLCPP_INFO(this->get_logger(), "  Input base dir: %s", base_dir_.c_str());
+  RCLCPP_INFO(this->get_logger(), "  Data dir: %s", data_dir_.c_str());
   RCLCPP_INFO(this->get_logger(), "  Robot: %s", robot_name_.c_str());
   RCLCPP_INFO(this->get_logger(), "  point_type: %s", point_type_.c_str());
   RCLCPP_INFO(this->get_logger(), "  organized: %d, destagger: %d", organized_, destagger_);

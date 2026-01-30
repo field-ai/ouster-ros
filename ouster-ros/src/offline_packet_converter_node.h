@@ -25,7 +25,6 @@
 #include <regex>
 
 constexpr size_t MAX_BAGFILE_SIZE_BYTES = 500ULL * 1024ULL * 1024ULL; // 500MB
-constexpr size_t MAX_CACHE_SIZE_BYTES = 64ULL * 1024ULL * 1024ULL;    // 64MB
 constexpr uint64_t NANOSECONDS_PER_SECOND = 1000000000ULL;
 constexpr const char* LIDAR_BAG_PATTERN = "(.*)_lidar_(.*)";
 constexpr const char* LIDAR_POINTCLOUD_REPLACE = "$1_lidar_pointcloud_$2";
@@ -129,9 +128,9 @@ private:
   uint64_t extractScanTimestamp(const ouster::LidarScan& scan, uint64_t fallback_timestamp);
 
   /**
-   * @brief Input base directory path.
+   * @brief Input data_dir directory path.
    */
-  std::string base_dir_;
+  std::string data_dir_;
 
   /**
    * @brief Input bag directory path.
