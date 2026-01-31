@@ -22,6 +22,9 @@ find_package(PCL REQUIRED COMPONENTS common)
 find_package(pcl_conversions REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(rosbag2_cpp REQUIRED)
+find_package(rosbag2_storage REQUIRED)
+find_package(rosbag2_transport REQUIRED)
 
 # ==== Options ====
 add_compile_options(-Wall -Wextra)
@@ -185,6 +188,35 @@ rclcpp_components_register_node(os_pcap_component
 )
 endif()
 
+# ===== Executables =====
+add_executable(offline_packet_converter_node
+  src/offline_packet_converter_node.cpp
+)
+
+target_include_directories(offline_packet_converter_node
+  PUBLIC
+    ${_ouster_ros_INCLUDE_DIRS}
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(offline_packet_converter_node
+  ouster_ros_library
+  ${OUSTER_TARGET_LINKS}
+)
+
+ament_target_dependencies(offline_packet_converter_node
+  rclcpp
+  rosbag2_cpp
+  rosbag2_storage
+  sensor_msgs
+  ouster_sensor_msgs
+  pcl_conversions
+  rosbag2_transport
+)
+
 # ==== Test ====
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -221,6 +253,12 @@ set(OUSTER_INSTALL_TARGETS
 if (BUILD_PCAP)
   list(APPEND OUSTER_INSTALL_TARGETS os_pcap_component)
 endif()
+
+install(
+  TARGETS
+    offline_packet_converter_node
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
 
 install(
   TARGETS
