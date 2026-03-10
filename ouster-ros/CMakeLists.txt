@@ -28,6 +28,8 @@ find_package(OpenCV REQUIRED)
 if(NOT OpenCV_LIBS)
   set(OpenCV_LIBS ${OpenCV_LIBRARIES})
 endif()
+find_package(rosbag2_cpp REQUIRED)          # Add this
+find_package(rosbag2_storage REQUIRED)      # Add this
 
 # ==== Options ====
 add_compile_options(-Wall -Wextra)
@@ -192,6 +194,24 @@ rclcpp_components_register_node(os_pcap_component
 )
 endif()
 
+# ===== Executables =====
+add_executable(offline_packet_converter
+  src/offline_packet_converter.cpp
+)
+
+target_link_libraries(offline_packet_converter
+  ouster_ros_library
+)
+
+ament_target_dependencies(offline_packet_converter
+  rclcpp
+  rosbag2_cpp
+  rosbag2_storage
+  sensor_msgs
+  ouster_sensor_msgs
+  pcl_conversions
+)
+
 # ==== Test ====
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -232,6 +252,7 @@ endif()
 install(
   TARGETS
     ${OUSTER_INSTALL_TARGETS}
+    offline_packet_converter
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
