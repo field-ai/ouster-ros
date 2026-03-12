@@ -10,6 +10,7 @@ project(ouster_ros)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(class_loader REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -21,9 +22,14 @@ find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common)
 find_package(pcl_conversions REQUIRED)
 find_package(tf2_eigen REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(OpenCV REQUIRED)
-find_package(rosbag2_cpp REQUIRED)
-find_package(rosbag2_storage REQUIRED)
+# Use OpenCV libs variable (OpenCV::OpenCV target may not resolve on all systems)
+if(NOT OpenCV_LIBS)
+  set(OpenCV_LIBS ${OpenCV_LIBRARIES})
+endif()
+find_package(rosbag2_cpp REQUIRED)          # Add this
+find_package(rosbag2_storage REQUIRED)      # Add this
 find_package(rosbag2_transport REQUIRED)
 
 # ==== Options ====
@@ -35,10 +41,10 @@ endif()
 option(CMAKE_POSITION_INDEPENDENT_CODE "Build position independent code." ON)
 
 set(_ouster_ros_INCLUDE_DIRS
-  "include;"
-  "ouster-sdk/ouster_client/include;"
-  "ouster-sdk/ouster_client/include/optional-lite;"
-  "ouster-sdk/ouster_pcap/include"
+  include
+  ouster-sdk/ouster_sensor/include
+  ouster-sdk/ouster_client/include/optional-lite
+  ouster-sdk/ouster_pcap/include
 )
 
 # ==== Libraries ====
@@ -48,6 +54,7 @@ set(BUILD_SHARED_LIBS OFF)
 option(BUILD_VIZ "Turn off building VIZ" OFF)
 option(BUILD_PCAP "Turn off building PCAP" OFF)
 option(BUILD_OSF "Turn off building OSF" OFF)
+option(BUILD_MAPPING "Turn off building MAPPING" OFF)
 find_package(OusterSDK REQUIRED)
 
 set(BUILD_SHARED_LIBS ${_SAVE_BUILD_SHARED_LIBS})
@@ -86,17 +93,18 @@ ament_target_dependencies(ouster_ros_library
 target_link_libraries(ouster_ros_library
   # PUBLIC (unsupported)
     ouster_build
+    OusterSDK::ouster_sensor
     pcl_common
   # PRIVATE (unsupported)
   ${OUSTER_TARGET_LINKS}
-  ${OpenCV_LIBRARIES}
+  ${OpenCV_LIBS}
 )
 
 # helper method to construct ouster-ros components
 function(create_ros2_component
   component_lib_name
   src_list
-  additonal_dependencies
+  additional_dependencies
 )
 
   add_library(${component_lib_name} SHARED
@@ -114,12 +122,11 @@ function(create_ros2_component
     std_msgs
     sensor_msgs
     geometry_msgs
-    ${additonal_dependencies}
+    ${additional_dependencies}
   )
 
   target_link_libraries(${component_lib_name}
     ouster_ros_library
-    ${cpp_typesupport_target}
   )
 
 endfunction()
@@ -177,7 +184,7 @@ rclcpp_components_register_node(os_driver_component
 
 
 if (BUILD_PCAP)
-# ==== os_replay_component ====
+# ==== os_pcap_component ====
 create_ros2_component(os_pcap_component
   "src/os_sensor_node_base.cpp;src/os_pcap_node.cpp"
   ""

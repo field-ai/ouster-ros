@@ -230,7 +230,7 @@ void OfflinePacketConverterNode::convert() {
   }
 }
 
-ouster::sensor::sensor_info OfflinePacketConverterNode::loadOusterMetadata(const std::string& metadata_file) {
+ouster::sdk::core::SensorInfo OfflinePacketConverterNode::loadOusterMetadata(const std::string& metadata_file) {
   std::ifstream ifs(metadata_file);
   if (!ifs.is_open()) {
     RCLCPP_ERROR(this->get_logger(), "Cannot open metadata file: %s", metadata_file.c_str());
@@ -239,7 +239,7 @@ ouster::sensor::sensor_info OfflinePacketConverterNode::loadOusterMetadata(const
   std::stringstream buffer;
   buffer << ifs.rdbuf();
   try {
-    return ouster::sensor::parse_metadata(buffer.str());
+    return ouster::sdk::core::SensorInfo(buffer.str());
   } catch (const std::exception& e) {
     RCLCPP_ERROR(this->get_logger(), "Failed to parse Ouster metadata: %s", e.what());
     throw;
@@ -270,7 +270,7 @@ bool OfflinePacketConverterNode::validateInputBagDir(const std::string& bag_dir)
   }
 }
 
-ouster::sensor::LidarPacket
+ouster::sdk::core::LidarPacket
 OfflinePacketConverterNode::deserializeLidarPacket(const rosbag2_storage::SerializedBagMessage& bag_message) {
   rclcpp::SerializedMessage serialized_msg(*bag_message.serialized_data);
   ouster_sensor_msgs::msg::PacketMsg packet_msg;
@@ -278,14 +278,14 @@ OfflinePacketConverterNode::deserializeLidarPacket(const rosbag2_storage::Serial
   rclcpp::Serialization<ouster_sensor_msgs::msg::PacketMsg> serialization;
   serialization.deserialize_message(&serialized_msg, &packet_msg);
 
-  ouster::sensor::LidarPacket lidar_packet(packet_msg.buf.size());
+  ouster::sdk::core::LidarPacket lidar_packet(packet_msg.buf.size());
   std::memcpy(lidar_packet.buf.data(), packet_msg.buf.data(), packet_msg.buf.size());
   lidar_packet.host_timestamp = static_cast<uint64_t>(bag_message.recv_timestamp);
 
   return lidar_packet;
 }
 
-uint64_t OfflinePacketConverterNode::extractScanTimestamp(const ouster::LidarScan& scan, uint64_t fallback_timestamp) {
+uint64_t OfflinePacketConverterNode::extractScanTimestamp(const ouster::sdk::core::LidarScan& scan, uint64_t fallback_timestamp) {
   auto ts_v = scan.timestamp();
   auto it = std::find_if(ts_v.data(), ts_v.data() + ts_v.size(), [](uint64_t t) { return t != 0; });
 
@@ -298,9 +298,9 @@ bool OfflinePacketConverterNode::process() {
     return false;
   }
   // setup ouster processing pipeline
-  ouster::ScanBatcher batcher(ouster_metadata_);
+  ouster::sdk::core::ScanBatcher batcher(ouster_metadata_);
 
-  ouster::LidarScan scan(ouster_metadata_.format.columns_per_frame,
+  ouster::sdk::core::LidarScan scan(ouster_metadata_.format.columns_per_frame,
                          ouster_metadata_.format.pixels_per_column,
                          ouster_metadata_.format.udp_profile_lidar);
 

@@ -82,7 +82,7 @@ private:
    * @param metadata_file The path to the ouster metadata file.
    * @return The loaded Ouster sensor_info.
    */
-  ouster::sensor::sensor_info loadOusterMetadata(const std::string& metadata_file);
+  ouster::sdk::core::SensorInfo loadOusterMetadata(const std::string& metadata_file);
 
   /**
    * @brief Write point cloud messages to the output bag file.
@@ -117,7 +117,7 @@ private:
    * @param bag_message The serialized bag message.
    * @return The deserialized LidarPacket.
    */
-  ouster::sensor::LidarPacket deserializeLidarPacket(const rosbag2_storage::SerializedBagMessage& bag_message);
+  ouster::sdk::core::LidarPacket deserializeLidarPacket(const rosbag2_storage::SerializedBagMessage& bag_message);
 
   /**
    * @brief Extract the scan timestamp from a LidarScan.
@@ -125,7 +125,7 @@ private:
    * @param fallback_timestamp The fallback timestamp to use if no valid timestamp is found.
    * @return The extracted scan timestamp.
    */
-  uint64_t extractScanTimestamp(const ouster::LidarScan& scan, uint64_t fallback_timestamp);
+  uint64_t extractScanTimestamp(const ouster::sdk::core::LidarScan& scan, uint64_t fallback_timestamp);
 
   /**
    * @brief Input data_dir directory path.
@@ -170,7 +170,7 @@ private:
   /**
    * @brief Ouster sensor metadata.
    */
-  ouster::sensor::sensor_info ouster_metadata_;
+  ouster::sdk::core::SensorInfo ouster_metadata_;
 
   /**
    * @brief Writer for the output bag file.
