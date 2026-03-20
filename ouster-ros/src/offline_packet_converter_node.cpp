@@ -88,6 +88,7 @@ bool OfflinePacketConverterNode::init() {
 
   // Setup topics and paths
   input_lidar_topic_ = "/" + robot_name_ + "/ouster/lidar_packets";
+  input_imu_topic_ = "/" + robot_name_ + "/ouster/imu";
   frame_id_ = robot_name_ + "/os_sensor";
   output_lidar_topic_ = "/" + robot_name_ + "/raw_velodyne_points";
   timestamp_mode_ = "TIME_FROM_PTP_1588";
@@ -122,18 +123,24 @@ bool OfflinePacketConverterNode::setupReaderWriter() {
   reader_ = rosbag2_transport::ReaderWriterFactory::make_reader(read_storage_options);
   reader_->open(read_storage_options, converter_options);
 
-  // validate input bag has expected topic
+  // validate input bag has expected topics
   bool bag_has_input_lidar_topic = false;
+  bool bag_has_input_imu_topic = false;
   auto topics = reader_->get_all_topics_and_types();
   for (const auto& topic : topics) {
     if (topic.name == input_lidar_topic_) {
       bag_has_input_lidar_topic = true;
-      break;
+    } else if (topic.name == input_imu_topic_) {
+      bag_has_input_imu_topic = true;
     }
   }
   if (!bag_has_input_lidar_topic) {
     RCLCPP_ERROR(this->get_logger(), "Input bag does not contain expected lidar topic: %s", input_lidar_topic_.c_str());
     return false;
+  }
+  if (!bag_has_input_imu_topic) {
+    RCLCPP_WARN(this->get_logger(), "Input bag does not contain IMU topic: %s. IMU data will not be included in output.",
+                input_imu_topic_.c_str());
   }
 
   // // Setup writer with compression
@@ -148,12 +155,20 @@ bool OfflinePacketConverterNode::setupReaderWriter() {
   writer_ = rosbag2_transport::ReaderWriterFactory::make_writer(record_options);
   writer_->open(write_storage_options, converter_options);
 
-  // Create output topic
+  // Create output topics
   rosbag2_storage::TopicMetadata cloud_topic;
   cloud_topic.name = output_lidar_topic_;
   cloud_topic.type = "sensor_msgs/msg/PointCloud2";
   cloud_topic.serialization_format = "cdr";
   writer_->create_topic(cloud_topic);
+
+  if (bag_has_input_imu_topic) {
+    rosbag2_storage::TopicMetadata imu_topic;
+    imu_topic.name = input_imu_topic_;
+    imu_topic.type = "sensor_msgs/msg/Imu";
+    imu_topic.serialization_format = "cdr";
+    writer_->create_topic(imu_topic);
+  }
 
   return true;
 }
@@ -322,6 +337,12 @@ bool OfflinePacketConverterNode::process() {
 
   while (reader_->has_next() && rclcpp::ok()) {
     auto bag_message = reader_->read_next();
+
+    if (bag_message->topic_name == input_imu_topic_) {
+      writer_->write(bag_message);
+      continue;
+    }
+
     if (bag_message->topic_name != input_lidar_topic_) {
       continue;
     }
