@@ -13,6 +13,7 @@
 #include <ouster/lidar_scan.h>
 #include <ouster/types.h>
 #include <ouster_sensor_msgs/msg/packet_msg.hpp>
+#include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <string>
 
@@ -151,6 +152,11 @@ private:
    * @brief Input lidar topic name.
    */
   std::string input_lidar_topic_;
+
+  /**
+   * @brief Input IMU topic name.
+   */
+  std::string input_imu_topic_;
 
   /**
    * @brief Output lidar topic name.
