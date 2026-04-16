@@ -11,9 +11,8 @@ OfflinePacketConverterNode::OfflinePacketConverterNode(const rclcpp::NodeOptions
   }
 
   RCLCPP_INFO(this->get_logger(),
-              "Initialized with input bag: %s, output bag: %s, lidar topic: %s, frame id: %s",
-              input_bag_dir_.c_str(),
-              output_bag_dir_.c_str(),
+              "Initialized with %zu bag(s) to process, lidar topic: %s, frame id: %s",
+              bag_dirs_.size(),
               input_lidar_topic_.c_str(),
               frame_id_.c_str());
 }
@@ -62,48 +61,39 @@ bool OfflinePacketConverterNode::init() {
   auto lidar_bags = findDirsByRegex(rosbag2_dir.string(), LIDAR_BAG_PATTERN);
 
   if (lidar_bags.empty()) {
+    RCLCPP_ERROR(this->get_logger(), "No lidar bag directories found in: %s", rosbag2_dir.c_str());
     return false;
   }
 
-  if (lidar_bags.size() > 1) {
-    RCLCPP_WARN(this->get_logger(),
-                "Found %zu lidar bag directories, using first one: %s",
-                lidar_bags.size(),
-                lidar_bags.begin()->second.c_str());
-  }
-
-  // choose the first bag dir found
-  input_bag_dir_ = lidar_bags.begin()->second;
-
-  // Validate bag dir
-  if (!validateInputBagDir(input_bag_dir_)) {
-    return false;
-  }
-
-  RCLCPP_INFO(this->get_logger(), "Using input bag directory: %s", input_bag_dir_.c_str());
-
-  // Setup output bag dir
-  std::string output_dir_name = replaceRawWithPointcloud(std::filesystem::path(input_bag_dir_).filename().string());
-  output_bag_dir_ = rosbag2_dir / output_dir_name;
-
-  // Setup topics and paths
+  // Setup topics and frame id (shared across all bags)
   input_lidar_topic_ = "/" + robot_name_ + "/ouster/lidar_packets";
   input_imu_topic_ = "/" + robot_name_ + "/ouster/imu";
   frame_id_ = robot_name_ + "/os_sensor";
   output_lidar_topic_ = "/" + robot_name_ + "/raw_velodyne_points";
   timestamp_mode_ = "TIME_FROM_PTP_1588";
 
-  if (std::filesystem::exists(output_bag_dir_)) {
-    RCLCPP_ERROR(
-        this->get_logger(), "Output directory %s already exists. Files may be overwritten.", output_bag_dir_.c_str());
+  // Collect all valid (input, output) bag pairs
+  for (const auto& [idx, bag_dir] : lidar_bags) {
+    if (!validateInputBagDir(bag_dir)) {
+      RCLCPP_WARN(this->get_logger(), "Skipping invalid bag directory: %s", bag_dir.c_str());
+      continue;
+    }
+    std::string output_dir_name = replaceRawWithPointcloud(std::filesystem::path(bag_dir).filename().string());
+    std::filesystem::path output_bag_dir = rosbag2_dir / output_dir_name;
+    if (std::filesystem::exists(output_bag_dir)) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Output directory already exists, skipping: %s", output_bag_dir.c_str());
+      continue;
+    }
+    RCLCPP_INFO(this->get_logger(), "Queued bag: %s -> %s", bag_dir.c_str(), output_bag_dir.c_str());
+    bag_dirs_.emplace_back(bag_dir, output_bag_dir.string());
+  }
+
+  if (bag_dirs_.empty()) {
+    RCLCPP_ERROR(this->get_logger(), "No valid input bags to process.");
     return false;
   }
 
-  // Setup reader and writer
-  if (!setupReaderWriter()) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to setup reader and writer.");
-    return false;
-  }
   return true;
 }
 
@@ -231,18 +221,33 @@ void OfflinePacketConverterNode::setupParameters() {
 }
 
 void OfflinePacketConverterNode::convert() {
-  if (!process()) {
-    throw std::runtime_error("Failed to process bag.");
-    return;
+  int total_scans = 0;
+
+  for (const auto& [input_bag, output_bag] : bag_dirs_) {
+    if (!rclcpp::ok()) {
+      RCLCPP_INFO(this->get_logger(), "Conversion interrupted by user.");
+      break;
+    }
+
+    input_bag_dir_ = input_bag;
+    output_bag_dir_ = output_bag;
+    scan_counter_ = 0;
+
+    RCLCPP_INFO(this->get_logger(), "Processing bag: %s -> %s", input_bag.c_str(), output_bag.c_str());
+
+    if (!setupReaderWriter()) {
+      throw std::runtime_error("Failed to setup reader/writer for: " + input_bag);
+    }
+
+    if (!process()) {
+      throw std::runtime_error("Failed to process bag: " + input_bag);
+    }
+
+    RCLCPP_INFO(this->get_logger(), "Bag complete. Scans processed: %d", scan_counter_);
+    total_scans += scan_counter_;
   }
 
-  RCLCPP_INFO(this->get_logger(), "Conversion process complete. Total scans processed: %d", scan_counter_);
-
-  if (!rclcpp::ok()) {
-    RCLCPP_INFO(this->get_logger(), "Conversion interrupted by user.");
-  } else {
-    RCLCPP_INFO(this->get_logger(), "All conversions complete!");
-  }
+  RCLCPP_INFO(this->get_logger(), "All conversions complete! Total scans processed: %d", total_scans);
 }
 
 ouster::sdk::core::SensorInfo OfflinePacketConverterNode::loadOusterMetadata(const std::string& metadata_file) {
