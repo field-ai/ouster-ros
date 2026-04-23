@@ -1,0 +1,287 @@
+// clang-format off
+#include "ouster_ros/os_ros.h"
+// clang-format on
+
+#include <rclcpp/rclcpp.hpp>
+#include <rclcpp/serialization.hpp>
+#include <rclcpp/serialized_message.hpp>
+#include <rosbag2_cpp/writer.hpp>
+#include <rosbag2_storage/storage_options.hpp>
+#include <rosbag2_transport/reader_writer_factory.hpp>
+#include <rosbag2_transport/record_options.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+
+#include <ouster/lidar_scan.h>
+#include <ouster/os_pcap.h>
+#include <ouster/types.h>
+
+#include "imu_packet_handler.h"
+#include "point_cloud_processor_factory.h"
+
+#include <getopt.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace {
+
+constexpr size_t MAX_BAGFILE_SIZE_BYTES = 512ULL * 1024ULL * 1024ULL;  // 512 MiB, matches pcap.zst rotation
+
+struct Args {
+  std::vector<std::string> pcaps;
+  std::string metadata;
+  std::string output_bag;
+  std::string robot_namespace;
+  std::string point_type = "original";
+  bool organized = true;
+  bool destagger = true;
+  double min_range = 0.0;
+  double max_range = 1000.0;
+  int v_reduction = 1;
+  std::string mask_path;
+  std::string timestamp_mode = "TIME_FROM_PTP_1588";
+  int64_t ptp_utc_tai_offset = 0;
+};
+
+void print_usage(const char* prog) {
+  std::cerr
+      << "Usage: " << prog << " \\\n"
+      << "    --pcap <file> [--pcap <file> ...] \\\n"
+      << "    --metadata <ouster_metadata.json> \\\n"
+      << "    --output-bag <dir> \\\n"
+      << "    --robot-namespace <name> \\\n"
+      << "    [--point-type original] [--organized 0|1] [--destagger 0|1] \\\n"
+      << "    [--min-range 0.0] [--max-range 1000.0] [--v-reduction 1] \\\n"
+      << "    [--mask-path <file>] [--timestamp-mode TIME_FROM_PTP_1588]\n";
+}
+
+bool parse_bool(const std::string& s) { return s == "1" || s == "true" || s == "True"; }
+
+bool parse_args(int argc, char** argv, Args& out) {
+  static const struct option long_opts[] = {
+      {"pcap", required_argument, nullptr, 'p'},
+      {"metadata", required_argument, nullptr, 'm'},
+      {"output-bag", required_argument, nullptr, 'o'},
+      {"robot-namespace", required_argument, nullptr, 'n'},
+      {"point-type", required_argument, nullptr, 't'},
+      {"organized", required_argument, nullptr, 'g'},
+      {"destagger", required_argument, nullptr, 'd'},
+      {"min-range", required_argument, nullptr, 'i'},
+      {"max-range", required_argument, nullptr, 'x'},
+      {"v-reduction", required_argument, nullptr, 'v'},
+      {"mask-path", required_argument, nullptr, 'k'},
+      {"timestamp-mode", required_argument, nullptr, 's'},
+      {"ptp-utc-tai-offset", required_argument, nullptr, 'u'},
+      {"help", no_argument, nullptr, 'h'},
+      {nullptr, 0, nullptr, 0},
+  };
+  int c;
+  while ((c = getopt_long(argc, argv, "", long_opts, nullptr)) != -1) {
+    switch (c) {
+      case 'p': out.pcaps.emplace_back(optarg); break;
+      case 'm': out.metadata = optarg; break;
+      case 'o': out.output_bag = optarg; break;
+      case 'n': out.robot_namespace = optarg; break;
+      case 't': out.point_type = optarg; break;
+      case 'g': out.organized = parse_bool(optarg); break;
+      case 'd': out.destagger = parse_bool(optarg); break;
+      case 'i': out.min_range = std::stod(optarg); break;
+      case 'x': out.max_range = std::stod(optarg); break;
+      case 'v': out.v_reduction = std::stoi(optarg); break;
+      case 'k': out.mask_path = optarg; break;
+      case 's': out.timestamp_mode = optarg; break;
+      case 'u': out.ptp_utc_tai_offset = std::stoll(optarg); break;
+      case 'h': print_usage(argv[0]); return false;
+      default: print_usage(argv[0]); return false;
+    }
+  }
+  if (out.pcaps.empty() || out.metadata.empty() || out.output_bag.empty() ||
+      out.robot_namespace.empty()) {
+    print_usage(argv[0]);
+    return false;
+  }
+  return true;
+}
+
+ouster::sdk::core::SensorInfo load_metadata(const std::string& path) {
+  std::ifstream ifs(path);
+  if (!ifs) throw std::runtime_error("Cannot open metadata file: " + path);
+  std::stringstream buf;
+  buf << ifs.rdbuf();
+  return ouster::sdk::core::SensorInfo(buf.str());
+}
+
+uint64_t extract_scan_timestamp(const ouster::sdk::core::LidarScan& scan, uint64_t fallback) {
+  auto ts = scan.timestamp();
+  auto it = std::find_if(ts.data(), ts.data() + ts.size(), [](uint64_t t) { return t != 0; });
+  return (it != ts.data() + ts.size()) ? *it : fallback;
+}
+
+template <typename Msg>
+std::shared_ptr<rosbag2_storage::SerializedBagMessage> serialize(
+    const Msg& msg, const std::string& topic, uint64_t stamp_ns) {
+  rclcpp::Serialization<Msg> ser;
+  auto serialized = std::make_shared<rclcpp::SerializedMessage>();
+  ser.serialize_message(&msg, serialized.get());
+  auto bag_msg = std::make_shared<rosbag2_storage::SerializedBagMessage>();
+  bag_msg->topic_name = topic;
+  bag_msg->serialized_data =
+      std::shared_ptr<rcutils_uint8_array_t>(serialized, &serialized->get_rcl_serialized_message());
+  bag_msg->recv_timestamp = static_cast<rcutils_time_point_value_t>(stamp_ns);
+  return bag_msg;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  Args args;
+  if (!parse_args(argc, argv, args)) return 1;
+
+  rclcpp::init(argc, argv);
+  auto logger = rclcpp::get_logger("pcap_to_mcap");
+
+  for (const auto& p : args.pcaps) {
+    if (!std::filesystem::is_regular_file(p)) {
+      RCLCPP_ERROR(logger, "pcap not found: %s", p.c_str());
+      return 1;
+    }
+  }
+  if (!std::filesystem::is_regular_file(args.metadata)) {
+    RCLCPP_ERROR(logger, "metadata not found: %s", args.metadata.c_str());
+    return 1;
+  }
+  if (std::filesystem::exists(args.output_bag)) {
+    RCLCPP_ERROR(logger, "output bag already exists: %s", args.output_bag.c_str());
+    return 1;
+  }
+
+  const auto info = load_metadata(args.metadata);
+  const auto& pf = ouster::sdk::core::get_format(info);
+
+  const std::string frame_id = args.robot_namespace + "/os_sensor";
+  const std::string lidar_topic = "/" + args.robot_namespace + "/raw_velodyne_points";
+  const std::string imu_topic = "/" + args.robot_namespace + "/ouster/imu";
+
+  // Writer
+  rosbag2_cpp::ConverterOptions converter_options;
+  converter_options.input_serialization_format = "cdr";
+  converter_options.output_serialization_format = "cdr";
+
+  rosbag2_storage::StorageOptions write_opts;
+  write_opts.uri = args.output_bag;
+  write_opts.storage_id = "mcap";
+  write_opts.storage_preset_profile = "zstd_fast";
+  write_opts.max_bagfile_size = MAX_BAGFILE_SIZE_BYTES;
+
+  rosbag2_transport::RecordOptions record_opts{};
+  auto writer = rosbag2_transport::ReaderWriterFactory::make_writer(record_opts);
+  writer->open(write_opts, converter_options);
+
+  rosbag2_storage::TopicMetadata lidar_meta;
+  lidar_meta.name = lidar_topic;
+  lidar_meta.type = "sensor_msgs/msg/PointCloud2";
+  lidar_meta.serialization_format = "cdr";
+  writer->create_topic(lidar_meta);
+
+  rosbag2_storage::TopicMetadata imu_meta;
+  imu_meta.name = imu_topic;
+  imu_meta.type = "sensor_msgs/msg/Imu";
+  imu_meta.serialization_format = "cdr";
+  writer->create_topic(imu_meta);
+
+  // Processing pipeline
+  ouster::sdk::core::ScanBatcher batcher(info);
+  ouster::sdk::core::LidarScan scan(info.format.columns_per_frame,
+                                    info.format.pixels_per_column,
+                                    info.format.udp_profile_lidar);
+
+  uint64_t scan_counter = 0;
+  auto point_cloud_processor = ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
+      args.point_type, info, frame_id,
+      /*apply_lidar_to_sensor_transform=*/true, args.organized, args.destagger,
+      static_cast<uint32_t>(args.min_range * 1e3),
+      static_cast<uint32_t>(args.max_range * 1e3), args.v_reduction, args.mask_path,
+      [&](ouster_ros::PointCloudProcessor_OutputType msgs) {
+        for (const auto& cloud : msgs) {
+          const uint64_t stamp_ns =
+              static_cast<uint64_t>(cloud->header.stamp.sec) * 1'000'000'000ULL + cloud->header.stamp.nanosec;
+          writer->write(serialize(*cloud, lidar_topic, stamp_ns));
+        }
+      });
+
+  auto imu_handler = ouster_ros::ImuPacketHandler::create(info, frame_id, args.timestamp_mode,
+                                                          args.ptp_utc_tai_offset);
+
+  ouster::sdk::core::LidarPacket lidar_packet(pf.lidar_packet_size);
+  ouster::sdk::core::ImuPacket imu_packet(pf.imu_packet_size);
+
+  bool is_first_scan = true;
+  uint64_t imu_counter = 0;
+
+  const auto t_start = std::chrono::steady_clock::now();
+
+  for (const auto& pcap_path : args.pcaps) {
+    RCLCPP_INFO(logger, "Processing pcap: %s", pcap_path.c_str());
+    ouster::sdk::pcap::PcapReader pcap(pcap_path);
+    size_t payload_size = pcap.next_packet();
+    while (payload_size && rclcpp::ok()) {
+      const auto pkt = pcap.current_info();
+      if (pkt.dst_port == info.config.udp_port_lidar) {
+        if (payload_size < pf.lidar_packet_size) {
+          RCLCPP_WARN(logger, "short lidar packet (%zu bytes), skipping", payload_size);
+        } else {
+          std::memcpy(lidar_packet.buf.data(), pcap.current_data(), pf.lidar_packet_size);
+          lidar_packet.host_timestamp =
+              static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                        pkt.timestamp)
+                                        .count());
+          if (batcher(lidar_packet, scan)) {
+            if (is_first_scan) {
+              is_first_scan = false;
+            } else {
+              const uint64_t scan_ts = extract_scan_timestamp(scan, lidar_packet.host_timestamp);
+              point_cloud_processor(scan, scan_ts, rclcpp::Time(scan_ts));
+              ++scan_counter;
+            }
+          }
+        }
+      } else if (pkt.dst_port == info.config.udp_port_imu) {
+        if (payload_size < pf.imu_packet_size) {
+          RCLCPP_WARN(logger, "short imu packet (%zu bytes), skipping", payload_size);
+        } else {
+          std::memcpy(imu_packet.buf.data(), pcap.current_data(), pf.imu_packet_size);
+          imu_packet.host_timestamp =
+              static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                        pkt.timestamp)
+                                        .count());
+          auto imu_msgs = imu_handler(imu_packet);
+          for (const auto& imu : imu_msgs) {
+            const uint64_t stamp_ns =
+                static_cast<uint64_t>(imu.header.stamp.sec) * 1'000'000'000ULL + imu.header.stamp.nanosec;
+            writer->write(serialize(imu, imu_topic, stamp_ns));
+            ++imu_counter;
+          }
+        }
+      }
+      payload_size = pcap.next_packet();
+    }
+  }
+
+  writer.reset();
+
+  const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_start).count();
+  RCLCPP_INFO(logger, "Wrote %lu scans, %lu imu msgs in %.2fs -> %s", scan_counter, imu_counter,
+              elapsed, args.output_bag.c_str());
+
+  rclcpp::shutdown();
+  return 0;
+}
