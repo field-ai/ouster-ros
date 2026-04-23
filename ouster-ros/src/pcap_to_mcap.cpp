@@ -26,6 +26,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -140,6 +141,66 @@ std::shared_ptr<rosbag2_storage::SerializedBagMessage> serialize(
   return bag_msg;
 }
 
+struct BatchState {
+  ouster::sdk::core::ScanBatcher batcher;
+  ouster::sdk::core::LidarScan scan;
+  ouster::sdk::core::LidarPacket lidar_packet;
+  ouster::sdk::core::ImuPacket imu_packet;
+  bool is_first_scan = true;
+
+  BatchState(const ouster::sdk::core::SensorInfo& info,
+             const ouster::sdk::core::PacketFormat& pf)
+      : batcher(info),
+        scan(info.format.columns_per_frame, info.format.pixels_per_column,
+             info.format.udp_profile_lidar),
+        lidar_packet(pf.lidar_packet_size),
+        imu_packet(pf.imu_packet_size) {}
+};
+
+using ScanSink = std::function<void(const ouster::sdk::core::LidarScan&, uint64_t)>;
+using ImuSink = std::function<void(const ouster::sdk::core::ImuPacket&)>;
+
+void process_pcap(const std::string& pcap_path,
+                  const ouster::sdk::core::SensorInfo& info,
+                  const ouster::sdk::core::PacketFormat& pf, BatchState& state,
+                  const ScanSink& on_scan, const ImuSink& on_imu,
+                  const rclcpp::Logger& logger) {
+  RCLCPP_INFO(logger, "Processing pcap: %s", pcap_path.c_str());
+  ouster::sdk::pcap::PcapReader pcap(pcap_path);
+  size_t payload_size = pcap.next_packet();
+  while (payload_size && rclcpp::ok()) {
+    const auto pkt = pcap.current_info();
+    const uint64_t host_ts = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(pkt.timestamp).count());
+
+    if (pkt.dst_port == info.config.udp_port_lidar) {
+      if (payload_size < pf.lidar_packet_size) {
+        RCLCPP_WARN(logger, "short lidar packet (%zu bytes), skipping", payload_size);
+      } else {
+        std::memcpy(state.lidar_packet.buf.data(), pcap.current_data(), pf.lidar_packet_size);
+        state.lidar_packet.host_timestamp = host_ts;
+        if (state.batcher(state.lidar_packet, state.scan)) {
+          if (state.is_first_scan) {
+            state.is_first_scan = false;
+          } else {
+            const uint64_t scan_ts = extract_scan_timestamp(state.scan, host_ts);
+            on_scan(state.scan, scan_ts);
+          }
+        }
+      }
+    } else if (pkt.dst_port == info.config.udp_port_imu) {
+      if (payload_size < pf.imu_packet_size) {
+        RCLCPP_WARN(logger, "short imu packet (%zu bytes), skipping", payload_size);
+      } else {
+        std::memcpy(state.imu_packet.buf.data(), pcap.current_data(), pf.imu_packet_size);
+        state.imu_packet.host_timestamp = host_ts;
+        on_imu(state.imu_packet);
+      }
+    }
+    payload_size = pcap.next_packet();
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -198,13 +259,9 @@ int main(int argc, char** argv) {
   imu_meta.serialization_format = "cdr";
   writer->create_topic(imu_meta);
 
-  // Processing pipeline
-  ouster::sdk::core::ScanBatcher batcher(info);
-  ouster::sdk::core::LidarScan scan(info.format.columns_per_frame,
-                                    info.format.pixels_per_column,
-                                    info.format.udp_profile_lidar);
-
   uint64_t scan_counter = 0;
+  uint64_t imu_counter = 0;
+
   auto point_cloud_processor = ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
       args.point_type, info, frame_id,
       /*apply_lidar_to_sensor_transform=*/true, args.organized, args.destagger,
@@ -221,59 +278,23 @@ int main(int argc, char** argv) {
   auto imu_handler = ouster_ros::ImuPacketHandler::create(info, frame_id, args.timestamp_mode,
                                                           args.ptp_utc_tai_offset);
 
-  ouster::sdk::core::LidarPacket lidar_packet(pf.lidar_packet_size);
-  ouster::sdk::core::ImuPacket imu_packet(pf.imu_packet_size);
-
-  bool is_first_scan = true;
-  uint64_t imu_counter = 0;
-
-  const auto t_start = std::chrono::steady_clock::now();
-
-  for (const auto& pcap_path : args.pcaps) {
-    RCLCPP_INFO(logger, "Processing pcap: %s", pcap_path.c_str());
-    ouster::sdk::pcap::PcapReader pcap(pcap_path);
-    size_t payload_size = pcap.next_packet();
-    while (payload_size && rclcpp::ok()) {
-      const auto pkt = pcap.current_info();
-      if (pkt.dst_port == info.config.udp_port_lidar) {
-        if (payload_size < pf.lidar_packet_size) {
-          RCLCPP_WARN(logger, "short lidar packet (%zu bytes), skipping", payload_size);
-        } else {
-          std::memcpy(lidar_packet.buf.data(), pcap.current_data(), pf.lidar_packet_size);
-          lidar_packet.host_timestamp =
-              static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                        pkt.timestamp)
-                                        .count());
-          if (batcher(lidar_packet, scan)) {
-            if (is_first_scan) {
-              is_first_scan = false;
-            } else {
-              const uint64_t scan_ts = extract_scan_timestamp(scan, lidar_packet.host_timestamp);
-              point_cloud_processor(scan, scan_ts, rclcpp::Time(scan_ts));
-              ++scan_counter;
-            }
-          }
-        }
-      } else if (pkt.dst_port == info.config.udp_port_imu) {
-        if (payload_size < pf.imu_packet_size) {
-          RCLCPP_WARN(logger, "short imu packet (%zu bytes), skipping", payload_size);
-        } else {
-          std::memcpy(imu_packet.buf.data(), pcap.current_data(), pf.imu_packet_size);
-          imu_packet.host_timestamp =
-              static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                        pkt.timestamp)
-                                        .count());
-          auto imu_msgs = imu_handler(imu_packet);
-          for (const auto& imu : imu_msgs) {
-            const uint64_t stamp_ns =
-                static_cast<uint64_t>(imu.header.stamp.sec) * 1'000'000'000ULL + imu.header.stamp.nanosec;
-            writer->write(serialize(imu, imu_topic, stamp_ns));
-            ++imu_counter;
-          }
-        }
-      }
-      payload_size = pcap.next_packet();
+  ScanSink on_scan = [&](const ouster::sdk::core::LidarScan& scan, uint64_t scan_ts) {
+    point_cloud_processor(scan, scan_ts, rclcpp::Time(scan_ts));
+    ++scan_counter;
+  };
+  ImuSink on_imu = [&](const ouster::sdk::core::ImuPacket& packet) {
+    for (const auto& imu : imu_handler(packet)) {
+      const uint64_t stamp_ns =
+          static_cast<uint64_t>(imu.header.stamp.sec) * 1'000'000'000ULL + imu.header.stamp.nanosec;
+      writer->write(serialize(imu, imu_topic, stamp_ns));
+      ++imu_counter;
     }
+  };
+
+  BatchState state(info, pf);
+  const auto t_start = std::chrono::steady_clock::now();
+  for (const auto& pcap_path : args.pcaps) {
+    process_pcap(pcap_path, info, pf, state, on_scan, on_imu, logger);
   }
 
   writer.reset();
