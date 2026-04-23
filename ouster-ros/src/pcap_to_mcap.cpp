@@ -154,7 +154,11 @@ struct BatchState {
         scan(info.format.columns_per_frame, info.format.pixels_per_column,
              info.format.udp_profile_lidar),
         lidar_packet(pf.lidar_packet_size),
-        imu_packet(pf.imu_packet_size) {}
+        imu_packet(pf.imu_packet_size) {
+    auto packet_format = std::make_shared<ouster::sdk::core::PacketFormat>(pf);
+    lidar_packet.format = packet_format;
+    imu_packet.format = packet_format;
+  }
 };
 
 using ScanSink = std::function<void(const ouster::sdk::core::LidarScan&, uint64_t)>;
