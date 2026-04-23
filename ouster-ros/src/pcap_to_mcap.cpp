@@ -229,7 +229,7 @@ int main(int argc, char** argv) {
   const auto& pf = ouster::sdk::core::get_format(info);
 
   const std::string frame_id = args.robot_namespace + "/os_sensor";
-  const std::string lidar_topic = "/" + args.robot_namespace + "/raw_velodyne_points";
+  const std::string lidar_topic = "/" + args.robot_namespace + "/ouster/raw_points/highres";
   const std::string imu_topic = "/" + args.robot_namespace + "/ouster/imu";
 
   // Writer
