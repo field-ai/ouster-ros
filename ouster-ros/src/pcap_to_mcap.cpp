@@ -20,6 +20,7 @@
 #include "point_cloud_processor_factory.h"
 
 #include <getopt.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
@@ -241,10 +242,24 @@ int main(int argc, char** argv) {
   converter_options.input_serialization_format = "cdr";
   converter_options.output_serialization_format = "cdr";
 
+  // Write a temp mcap storage config selecting Zstd Slow profile.
+  // The "zstd_fast" preset uses compressionLevel=Fast; for offline pcap conversion
+  // we want smaller bags at the cost of more CPU during write -> compressionLevel=Slow.
+  const std::string storage_config_path =
+      (std::filesystem::temp_directory_path() /
+       ("pcap_to_mcap_storage_" + std::to_string(getpid()) + ".yaml"))
+          .string();
+  {
+    std::ofstream ofs(storage_config_path);
+    ofs << "output:\n"
+        << "  compression: Zstd\n"
+        << "  compressionLevel: Slow\n";
+  }
+
   rosbag2_storage::StorageOptions write_opts;
   write_opts.uri = args.output_bag;
   write_opts.storage_id = "mcap";
-  write_opts.storage_preset_profile = "zstd_fast";
+  write_opts.storage_config_uri = storage_config_path;
   write_opts.max_bagfile_size = MAX_BAGFILE_SIZE_BYTES;
 
   rosbag2_transport::RecordOptions record_opts{};
@@ -266,6 +281,11 @@ int main(int argc, char** argv) {
   uint64_t scan_counter = 0;
   uint64_t imu_counter = 0;
 
+  // Bag log timestamp = pcap host receive time (when the packet would have arrived live),
+  // not the message header timestamp (which is the sensor data timestamp from PTP).
+  // For PTP-synced sensors and offline replay these can be far apart.
+  uint64_t current_scan_log_ts = 0;
+
   auto point_cloud_processor = ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
       args.point_type, info, frame_id,
       /*apply_lidar_to_sensor_transform=*/true, args.organized, args.destagger,
@@ -273,9 +293,7 @@ int main(int argc, char** argv) {
       static_cast<uint32_t>(args.max_range * 1e3), args.v_reduction, args.mask_path,
       [&](ouster_ros::PointCloudProcessor_OutputType msgs) {
         for (const auto& cloud : msgs) {
-          const uint64_t stamp_ns =
-              static_cast<uint64_t>(cloud->header.stamp.sec) * 1'000'000'000ULL + cloud->header.stamp.nanosec;
-          writer->write(serialize(*cloud, lidar_topic, stamp_ns));
+          writer->write(serialize(*cloud, lidar_topic, current_scan_log_ts));
         }
       });
 
@@ -283,14 +301,13 @@ int main(int argc, char** argv) {
                                                           args.ptp_utc_tai_offset);
 
   ScanSink on_scan = [&](const ouster::sdk::core::LidarScan& scan, uint64_t scan_ts) {
+    current_scan_log_ts = scan_ts;
     point_cloud_processor(scan, scan_ts, rclcpp::Time(scan_ts));
     ++scan_counter;
   };
   ImuSink on_imu = [&](const ouster::sdk::core::ImuPacket& packet) {
     for (const auto& imu : imu_handler(packet)) {
-      const uint64_t stamp_ns =
-          static_cast<uint64_t>(imu.header.stamp.sec) * 1'000'000'000ULL + imu.header.stamp.nanosec;
-      writer->write(serialize(imu, imu_topic, stamp_ns));
+      writer->write(serialize(imu, imu_topic, packet.host_timestamp));
       ++imu_counter;
     }
   };
