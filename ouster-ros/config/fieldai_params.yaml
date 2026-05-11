@@ -5,7 +5,7 @@
     lidar_mode: "1024x10"
     timestamp_mode: 'TIME_FROM_PTP_1588'
     ptp_utc_tai_offset: 0.0
-    udp_profile_lidar: 'RNG19_RFL8_SIG16_NIR16_RGB16'
+    udp_profile_lidar: ''
     metadata: "$(env ROS_LOG_DIR /tmp/ros)/ouster_metadata.json"
     lidar_port: 0
     imu_port: 0
