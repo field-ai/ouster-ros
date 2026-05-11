@@ -45,6 +45,12 @@ class PointTransformTest : public ::testing::Test {
         // ouster_ros original/legacy point type
         initialize_point_elements_with_randoms<point::size(pt_os_point)>(
             pt_os_point);
+        // RGB point types
+        initialize_point_elements_with_randoms<point::size(
+            pt_rg19_rf8_sg16_nr16_rgb16)>(pt_rg19_rf8_sg16_nr16_rgb16);
+        pt_rg19_rf8_sg16_nr16_rgb16.r = 128;
+        pt_rg19_rf8_sg16_nr16_rgb16.g = 64;
+        pt_rg19_rf8_sg16_nr16_rgb16.b = 32;
     }
 
     void TearDown() override {}
@@ -58,6 +64,7 @@ class PointTransformTest : public ::testing::Test {
     static Point_RNG19_RFL8_SIG16_NIR16_DUAL pt_rg19_rf8_sg16_nr16_dual;
     static Point_RNG19_RFL8_SIG16_NIR16 pt_rg19_rf8_sg16_nr16;
     static Point_RNG15_RFL8_NIR8 pt_rg15_rfl8_nr8;
+    static Point_RNG19_RFL8_SIG16_NIR16_RGB16 pt_rg19_rf8_sg16_nr16_rgb16;
     // ouster_ros original/legacy point (not to be confused with Point_LEGACY)
     static ouster_ros::Point pt_os_point;
 };
@@ -72,6 +79,8 @@ Point_RNG19_RFL8_SIG16_NIR16_DUAL
     PointTransformTest::pt_rg19_rf8_sg16_nr16_dual;
 Point_RNG19_RFL8_SIG16_NIR16 PointTransformTest::pt_rg19_rf8_sg16_nr16;
 Point_RNG15_RFL8_NIR8 PointTransformTest::pt_rg15_rfl8_nr8;
+Point_RNG19_RFL8_SIG16_NIR16_RGB16
+    PointTransformTest::pt_rg19_rf8_sg16_nr16_rgb16;
 // ouster_ros original/legacy point (not to be confused with Point_LEGACY)
 ouster_ros::Point PointTransformTest::pt_os_point;
 
@@ -214,6 +223,11 @@ TEST_F(PointTransformTest, ExpectPointFieldZeroed) {
     point::transform(pt_os_point, pt_xyz);
     expect_points_xyz_equal(pt_os_point, pt_xyz);
     expect_point_fields_zeros<point::size(pt_os_point)>(pt_os_point);
+
+    point::transform(pt_rg19_rf8_sg16_nr16_rgb16, pt_xyz);
+    expect_points_xyz_equal(pt_rg19_rf8_sg16_nr16_rgb16, pt_xyz);
+    expect_point_fields_zeros<point::size(pt_rg19_rf8_sg16_nr16_rgb16)>(
+        pt_rg19_rf8_sg16_nr16_rgb16);
 }
 
 TEST_F(PointTransformTest, TestTransformReduce_LEGACY) {
@@ -289,4 +303,46 @@ TEST_F(PointTransformTest,
     point::transform(pt_os_point, pt_rg15_rfl8_nr8);
     expect_points_xyz_equal(pt_os_point, pt_rg15_rfl8_nr8);
     verify_point_transform(pt_os_point, pt_rg15_rfl8_nr8);
+}
+
+TEST_F(PointTransformTest, TestTransformReduce_RNG19_RFL8_SIG16_NIR16_RGB16) {
+    point::transform(pt_xyz, pt_rg19_rf8_sg16_nr16_rgb16);
+    expect_points_xyz_equal(pt_xyz, pt_rg19_rf8_sg16_nr16_rgb16);
+
+    point::transform(pt_xyzi, pt_rg19_rf8_sg16_nr16_rgb16);
+    expect_points_xyz_equal(pt_xyzi, pt_rg19_rf8_sg16_nr16_rgb16);
+    verify_point_transform(pt_xyzi, pt_rg19_rf8_sg16_nr16_rgb16);
+
+    point::transform(pt_xyzir, pt_rg19_rf8_sg16_nr16_rgb16);
+    expect_points_xyz_equal(pt_xyzir, pt_rg19_rf8_sg16_nr16_rgb16);
+    verify_point_transform(pt_xyzir, pt_rg19_rf8_sg16_nr16_rgb16);
+}
+
+TEST_F(PointTransformTest, TestRGBFieldCopy) {
+    Point_RNG19_RFL8_SIG16_NIR16_RGB16 src;
+    src.r = 200; src.g = 100; src.b = 50;
+    src.x = 1.0f; src.y = 2.0f; src.z = 3.0f;
+
+    Point_RNG19_RFL8_SIG16_NIR16_RGB16 tgt;
+    point::transform(tgt, src);
+    EXPECT_EQ(tgt.r, 200);
+    EXPECT_EQ(tgt.g, 100);
+    EXPECT_EQ(tgt.b, 50);
+}
+
+TEST_F(PointTransformTest, TestRGBFieldZeroedWhenSrcHasNoRGB) {
+    pcl::PointXYZRGB tgt;
+    point::transform(tgt, pt_rg19_rf8_sg16_nr16);
+    EXPECT_EQ(tgt.r, 0);
+    EXPECT_EQ(tgt.g, 0);
+    EXPECT_EQ(tgt.b, 0);
+}
+
+TEST_F(PointTransformTest, TestTransform_RGBToXYZRGB) {
+    pcl::PointXYZRGB tgt;
+    point::transform(tgt, pt_rg19_rf8_sg16_nr16_rgb16);
+    expect_points_xyz_equal(tgt, pt_rg19_rf8_sg16_nr16_rgb16);
+    EXPECT_EQ(tgt.r, pt_rg19_rf8_sg16_nr16_rgb16.r);
+    EXPECT_EQ(tgt.g, pt_rg19_rf8_sg16_nr16_rgb16.g);
+    EXPECT_EQ(tgt.b, pt_rg19_rf8_sg16_nr16_rgb16.b);
 }

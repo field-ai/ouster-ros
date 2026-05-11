@@ -47,7 +47,7 @@ class PointAccessorTest : public ::testing::Test {
         pt_os_point = ouster_ros::_Point{
             {0.0f, 1.0f, 2.0f, 1.0f},   // x, y, z, w
             3.0f, 4,                    // intensity, t,
-            5, 6, 7, 8                  // reflectivity, ring, ambient, range
+            5, 6, 7, 8, 9              // reflectivity, ring, ambient, range, column
         };
     }
 
@@ -92,7 +92,7 @@ TEST_F(PointAccessorTest, ElementCount) {
     EXPECT_EQ(point::size(pt_rg15_rfl8_nr8),
               5 + Profile_RNG15_RFL8_NIR8.size());
     // ouster_ros original/legacy point type
-    EXPECT_EQ(point::size(pt_os_point), 9U);
+    EXPECT_EQ(point::size(pt_os_point), 10U);
 }
 
 // This test is only concerned with pcl & velodyne point types to verify that

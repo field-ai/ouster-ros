@@ -57,14 +57,16 @@ void OusterSensorNodeBase::display_lidar_info(const SensorInfo& info) {
     auto fw_ver = ouster::sdk::core::version_from_string(info.image_rev);
     auto lidar_profile = info.format.udp_profile_lidar;
     auto imu_profile = info.format.udp_profile_imu;
-    auto lidar_mode = info.config.lidar_mode.value_or(LidarMode::MODE_UNSPEC);
+    auto lidar_mode_str = info.config.lidar_mode
+        ? ouster::sdk::core::to_string(*info.config.lidar_mode)
+        : std::string("UNKNOWN");
     RCLCPP_INFO_STREAM(
         get_logger(),
         "ouster client version: "
             << ouster::sdk::SDK_VERSION_FULL << "\n"
             << "product: " << info.prod_line << ", sn: " << info.sn << ", "
             << "firmware ver: " << fw_ver.simple_version_string() << "\n"
-            << "lidar mode: " << ouster::sdk::core::to_string(lidar_mode) << ", "
+            << "lidar mode: " << lidar_mode_str << ", "
             << "lidar udp profile: " << ouster::sdk::core::to_string(lidar_profile) << ", "
             << "imu udp profile: " << ouster::sdk::core::to_string(imu_profile));
 }

@@ -147,6 +147,23 @@ constexpr void enumerate(PointT& pt, EnumOp enum_op) {
     }
 }
 
+// pcl::PointXYZRGB compile time element accessors
+template <>
+inline constexpr std::size_t size<pcl::PointXYZRGB>(const pcl::PointXYZRGB&) { return 6U; }
+
+template <>
+inline constexpr auto& get<0, pcl::PointXYZRGB>(pcl::PointXYZRGB& point) { return point.x; }
+template <>
+inline constexpr auto& get<1, pcl::PointXYZRGB>(pcl::PointXYZRGB& point) { return point.y; }
+template <>
+inline constexpr auto& get<2, pcl::PointXYZRGB>(pcl::PointXYZRGB& point) { return point.z; }
+template <>
+inline constexpr auto& get<3, pcl::PointXYZRGB>(pcl::PointXYZRGB& point) { return point.r; }
+template <>
+inline constexpr auto& get<4, pcl::PointXYZRGB>(pcl::PointXYZRGB& point) { return point.g; }
+template <>
+inline constexpr auto& get<5, pcl::PointXYZRGB>(pcl::PointXYZRGB& point) { return point.b; }
+
 }   // point
 }   // ouster_ros
 // Apply the macro to create the column checker

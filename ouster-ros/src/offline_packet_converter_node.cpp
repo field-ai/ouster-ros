@@ -315,9 +315,7 @@ bool OfflinePacketConverterNode::process() {
   // setup ouster processing pipeline
   ouster::sdk::core::ScanBatcher batcher(ouster_metadata_);
 
-  ouster::sdk::core::LidarScan scan(ouster_metadata_.format.columns_per_frame,
-                         ouster_metadata_.format.pixels_per_column,
-                         ouster_metadata_.format.udp_profile_lidar);
+  ouster::sdk::core::LidarScan scan(ouster_metadata_);
 
   auto point_cloud_processor = ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
       point_type_,

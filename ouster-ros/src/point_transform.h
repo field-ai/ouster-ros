@@ -29,6 +29,12 @@ DEFINE_MEMBER_CHECKER(near_ir);
 DEFINE_MEMBER_CHECKER(flags);
 DEFINE_MEMBER_CHECKER(window);
 DEFINE_MEMBER_CHECKER(zone_mask);
+DEFINE_MEMBER_CHECKER(r);
+DEFINE_MEMBER_CHECKER(g);
+DEFINE_MEMBER_CHECKER(b);
+
+template <typename T>
+inline constexpr bool has_rgb_v = has_r_v<T> && has_g_v<T> && has_b_v<T>;
 
 template <typename PointTGT, typename PointSRC>
 void transform(PointTGT& tgt_pt, const PointSRC& src_pt) {
@@ -161,6 +167,58 @@ void transform(PointTGT& tgt_pt, const PointSRC& src_pt) {
     CondBinaryOp<has_zone_mask_v<PointTGT> && !has_zone_mask_v<PointSRC>>::run(tgt_pt, src_pt,
         [](auto& tgt_pt, const auto&) {
             tgt_pt.zone_mask = static_cast<decltype(tgt_pt.zone_mask)>(0);
+        }
+    );
+
+    // column
+    CondBinaryOp<has_column_v<PointTGT> && has_column_v<PointSRC>>::run(tgt_pt, src_pt,
+        [](auto& tgt_pt, const auto& src_pt) {
+            tgt_pt.column = src_pt.column;
+        }
+    );
+
+    CondBinaryOp<has_column_v<PointTGT> && !has_column_v<PointSRC>>::run(tgt_pt, src_pt,
+        [](auto& tgt_pt, const auto&) {
+            tgt_pt.column = static_cast<decltype(tgt_pt.column)>(0);
+        }
+    );
+
+    // r
+    CondBinaryOp<has_r_v<PointTGT> && has_r_v<PointSRC>>::run(tgt_pt, src_pt,
+        [](auto& tgt_pt, const auto& src_pt) {
+            tgt_pt.r = src_pt.r;
+        }
+    );
+
+    CondBinaryOp<has_r_v<PointTGT> && !has_r_v<PointSRC>>::run(tgt_pt, src_pt,
+        [](auto& tgt_pt, const auto&) {
+            tgt_pt.r = static_cast<decltype(tgt_pt.r)>(0);
+        }
+    );
+
+    // g
+    CondBinaryOp<has_g_v<PointTGT> && has_g_v<PointSRC>>::run(tgt_pt, src_pt,
+        [](auto& tgt_pt, const auto& src_pt) {
+            tgt_pt.g = src_pt.g;
+        }
+    );
+
+    CondBinaryOp<has_g_v<PointTGT> && !has_g_v<PointSRC>>::run(tgt_pt, src_pt,
+        [](auto& tgt_pt, const auto&) {
+            tgt_pt.g = static_cast<decltype(tgt_pt.g)>(0);
+        }
+    );
+
+    // b
+    CondBinaryOp<has_b_v<PointTGT> && has_b_v<PointSRC>>::run(tgt_pt, src_pt,
+        [](auto& tgt_pt, const auto& src_pt) {
+            tgt_pt.b = src_pt.b;
+        }
+    );
+
+    CondBinaryOp<has_b_v<PointTGT> && !has_b_v<PointSRC>>::run(tgt_pt, src_pt,
+        [](auto& tgt_pt, const auto&) {
+            tgt_pt.b = static_cast<decltype(tgt_pt.b)>(0);
         }
     );
 }

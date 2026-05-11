@@ -1,16 +1,60 @@
 #pragma once
 
+#include <cmath>
+#include <cstring>
+
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
 #include "ouster_ros/os_point.h"
 #include "ouster_ros/sensor_point_types.h"
 #include "ouster_ros/common_point_types.h"
+#include "ouster/typedefs.h"
+#include "ouster/chanfield.h"
 
 #include "point_meta_helpers.h"
 #include "point_transform.h"
 
 namespace ouster_ros {
+
+namespace impl {
+
+inline float f16_bits_to_f32(uint16_t h) {
+    uint32_t sign = (h >> 15) & 0x1;
+    uint32_t exponent = (h >> 10) & 0x1F;
+    uint32_t mantissa = h & 0x3FF;
+    float result;
+    if (exponent == 0) {
+        if (mantissa == 0) {
+            uint32_t bits = sign << 31;
+            std::memcpy(&result, &bits, sizeof(result));
+        } else {
+            result = std::ldexp(static_cast<float>(mantissa), -24);
+            if (sign) result = -result;
+        }
+    } else if (exponent == 0x1F) {
+        if (mantissa == 0) {
+            result = sign ? -std::numeric_limits<float>::infinity()
+                          : std::numeric_limits<float>::infinity();
+        } else {
+            result = std::numeric_limits<float>::quiet_NaN();
+        }
+    } else {
+        uint32_t bits = (sign << 31) |
+                        ((exponent - 15 + 127) << 23) |
+                        (mantissa << 13);
+        std::memcpy(&result, &bits, sizeof(result));
+    }
+    return result;
+}
+
+inline uint8_t f16_rgb_to_u8(uint16_t h) {
+    float f = f16_bits_to_f32(h);
+    float clamped = std::fmin(std::fmax(f * 255.0f, 0.0f), 255.0f);
+    return static_cast<uint8_t>(clamped + 0.5f);
+}
+
+}  // namespace impl
 
 using ouster::sdk::core::ChanFieldType;
 
@@ -123,8 +167,20 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
                      const std::vector<int>& pixel_shift_by_row,
                      bool organized = false, bool destagger = true,
                      int rows_step = 1) {
+    constexpr bool handle_rgb = point::has_rgb_v<PointS>;
+
     auto ls_tuple = make_lidar_scan_tuple<0, N, PROFILE>(ls);
     auto timestamp = ls.timestamp();
+
+    const ouster::sdk::core::float16_t* rgb_data = nullptr;
+    if constexpr (handle_rgb) {
+        try {
+            const auto& rgb_field = ls.field(ouster::sdk::core::ChanField::RGB);
+            rgb_data = rgb_field.template get<ouster::sdk::core::float16_t>();
+        } catch (...) {
+            rgb_data = nullptr;
+        }
+    }
 
     if (!organized) cloud.clear();
     cloud.is_dense = true;
@@ -133,7 +189,7 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
     int w = static_cast<int>(ls.w);
 
     for (auto u = 0; u < h; u += rows_step) {
-        for (auto v = 0; v < w; ++v) {   // TODO[UN]: consider cols_step in future
+        for (auto v = 0; v < w; ++v) {
             const auto v_shift =
                 destagger ? (v + w - pixel_shift_by_row[u]) % w : v;
             const auto src_idx = u * w + v_shift;
@@ -141,12 +197,10 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
             const auto tgt_idx =
                 organized ? (u / rows_step) * w + v : cloud.size();
 
-            // copy the timestamp of associated point
             auto ts =
                 timestamp[v_shift] > scan_ts ? timestamp[v_shift] - scan_ts : 0UL;
 
             if (organized) {
-                // set is_dense to false if any of the xyz coordinates is NaN
                 cloud.is_dense &= !xyz.hasNaN();
             } else {
                 if (xyz.hasNaN())
@@ -155,24 +209,25 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
                     cloud.points.emplace_back();
             }
 
-
-            // if target point and staging point has matching type bind the
-            // target directly and avoid performing transform_point at the end
             auto& pt = CondBinaryBind<std::is_same_v<PointT, PointS>>::run(
                 cloud.points[tgt_idx], staging_point);
-            // all native point types have x, y, z, t and ring values
             pt.x = static_cast<decltype(pt.x)>(xyz(0));
             pt.y = static_cast<decltype(pt.y)>(xyz(1));
             pt.z = static_cast<decltype(pt.z)>(xyz(2));
-            // TODO: in the future we could probably skip copying t and ring
-            // values if known before hand that the target point cloud does
-            // not have a field to hold the timestamp or a ring for example the
-            // case of pcl::PointXYZ or pcl::PointXYZI.
             pt.t = static_cast<uint32_t>(ts);
             pt.ring = static_cast<uint16_t>(u);
             copy_lidar_scan_fields_to_point<0>(pt, ls_tuple, src_idx);
-            // only perform point transform operation when PointT, and PointS
-            // don't match
+
+            if constexpr (handle_rgb) {
+                if (rgb_data) {
+                    pt.r = impl::f16_rgb_to_u8(rgb_data[src_idx * 3 + 0].data);
+                    pt.g = impl::f16_rgb_to_u8(rgb_data[src_idx * 3 + 1].data);
+                    pt.b = impl::f16_rgb_to_u8(rgb_data[src_idx * 3 + 2].data);
+                } else {
+                    pt.r = 0; pt.g = 0; pt.b = 0;
+                }
+            }
+
             CondBinaryOp<!std::is_same_v<PointT, PointS>>::run(
                 cloud.points[tgt_idx], staging_point,
                 [](auto& tgt_pt, const auto& src_pt) {
