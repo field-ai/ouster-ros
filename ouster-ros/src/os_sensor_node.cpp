@@ -818,6 +818,10 @@ bool OusterSensor::configure_sensor(
     }
 
     uint8_t config_flags = compose_config_flags(config);
+    // udp_profile_lidar is read-only on some sensors (e.g. OS-0-128-RGB
+    // reports RNG19_RFL8_SIG16_NIR16_RGB16 but rejects it in set_config).
+    // Clear it so the sensor keeps its native profile.
+    config.udp_profile_lidar.reset();
     RCLCPP_INFO_STREAM(get_logger(), "Contacting sensor " << hostname << " ...");
     try {
         ouster::sdk::sensor::set_config(hostname, config, config_flags);
