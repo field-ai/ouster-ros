@@ -1,5 +1,6 @@
 #pragma once
 
+#include "custom_profiles.h"
 #include "point_cloud_processor.h"
 
 namespace ouster_ros {
@@ -196,6 +197,23 @@ class PointCloudProcessorFactory {
                 };
 
             default:
+                if (info.format.udp_profile_lidar ==
+                    static_cast<UDPProfileLidar>(CUSTOM_RGB_PROFILE_NR)) {
+                    return [organized, destagger, rows_step](
+                        ouster_ros::Cloud<PointT>& cloud,
+                        const ouster::sdk::core::PointCloudXYZf& points, uint64_t scan_ts,
+                        const ouster::sdk::core::LidarScan& ls,
+                        const std::vector<int>& pixel_shift_by_row,
+                        int /*return_index*/) {
+
+                        Point_RNG19_RFL8_SIG16_NIR16_RGB16 staging_pt;
+                        scan_to_cloud_f<
+                            Profile_RNG19_RFL8_SIG16_NIR16_RGB16.size(),
+                            Profile_RNG19_RFL8_SIG16_NIR16_RGB16>(
+                            cloud, staging_pt, points, scan_ts, ls,
+                            pixel_shift_by_row, organized, destagger, rows_step);
+                    };
+                }
                 throw std::runtime_error("unsupported udp_profile_lidar");
         }
     }
@@ -228,7 +246,8 @@ class PointCloudProcessorFactory {
                profile == UDPProfileLidar::RNG19_RFL8_SIG16_NIR16 ||
                profile == UDPProfileLidar::RNG19_RFL8_SIG16_NIR16_ZONE16 ||
                profile == UDPProfileLidar::RNG19_RFL8_SIG16_NIR16_RGB16 ||
-               profile == UDPProfileLidar::RNG19_RFL8_SIG16_NIR16_RGB16_DUAL;
+               profile == UDPProfileLidar::RNG19_RFL8_SIG16_NIR16_RGB16_DUAL ||
+               profile == static_cast<UDPProfileLidar>(CUSTOM_RGB_PROFILE_NR);
     }
 
     static LidarScanProcessor create_point_cloud_processor(
@@ -295,7 +314,13 @@ class PointCloudProcessorFactory {
                         organized, destagger, min_range, max_range, rows_step,
                         mask_path, post_processing_fn);
                 default:
-                    // TODO: implement fallback?
+                    if (info.format.udp_profile_lidar ==
+                        static_cast<UDPProfileLidar>(CUSTOM_RGB_PROFILE_NR)) {
+                        return make_point_cloud_processor<Point_RNG19_RFL8_SIG16_NIR16_RGB16>(
+                            info, frame, apply_lidar_to_sensor_transform,
+                            organized, destagger, min_range, max_range, rows_step,
+                            mask_path, post_processing_fn);
+                    }
                     throw std::runtime_error("unsupported udp_profile_lidar");
             }
         } else if (point_type == "xyz") {

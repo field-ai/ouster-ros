@@ -15,6 +15,7 @@
 #include <chrono>
 
 #include "os_sensor_node.h"
+#include "custom_profiles.h"
 #include <ouster/metadata.h>
 
 using ouster_sensor_msgs::msg::PacketMsg;
@@ -40,6 +41,7 @@ namespace ouster_ros {
 OusterSensor::OusterSensor(const std::string& name,
                            const rclcpp::NodeOptions& options)
     : OusterSensorNodeBase(name, options) {
+    register_custom_profiles();
     declare_parameters();
     staged_config = parse_config_from_ros_parameters();
     attempt_reconnect = get_parameter("attempt_reconnect").as_bool();

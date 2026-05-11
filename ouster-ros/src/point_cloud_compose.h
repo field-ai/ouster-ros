@@ -173,12 +173,19 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
     auto timestamp = ls.timestamp();
 
     const ouster::sdk::core::float16_t* rgb_data = nullptr;
+    const uint32_t* r_data = nullptr;
+    const uint32_t* g_data = nullptr;
+    const uint32_t* b_data = nullptr;
     if constexpr (handle_rgb) {
-        try {
-            const auto& rgb_field = ls.field(ouster::sdk::core::ChanField::RGB);
-            rgb_data = rgb_field.template get<ouster::sdk::core::float16_t>();
-        } catch (...) {
-            rgb_data = nullptr;
+        if (ls.has_field(ouster::sdk::core::ChanField::RGB)) {
+            rgb_data = ls.field(ouster::sdk::core::ChanField::RGB)
+                           .template get<ouster::sdk::core::float16_t>();
+        } else if (ls.has_field(ouster::sdk::core::ChanField::R) &&
+                   ls.has_field(ouster::sdk::core::ChanField::G) &&
+                   ls.has_field(ouster::sdk::core::ChanField::B)) {
+            r_data = ls.field<uint32_t>(ouster::sdk::core::ChanField::R).data();
+            g_data = ls.field<uint32_t>(ouster::sdk::core::ChanField::G).data();
+            b_data = ls.field<uint32_t>(ouster::sdk::core::ChanField::B).data();
         }
     }
 
@@ -223,6 +230,10 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
                     pt.r = impl::f16_rgb_to_u8(rgb_data[src_idx * 3 + 0].data);
                     pt.g = impl::f16_rgb_to_u8(rgb_data[src_idx * 3 + 1].data);
                     pt.b = impl::f16_rgb_to_u8(rgb_data[src_idx * 3 + 2].data);
+                } else if (r_data) {
+                    pt.r = static_cast<uint8_t>(r_data[src_idx] >> 8);
+                    pt.g = static_cast<uint8_t>(g_data[src_idx] >> 8);
+                    pt.b = static_cast<uint8_t>(b_data[src_idx] >> 8);
                 } else {
                     pt.r = 0; pt.g = 0; pt.b = 0;
                 }

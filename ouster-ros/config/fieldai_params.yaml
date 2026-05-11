@@ -14,7 +14,7 @@
     imu_frame: "$(env ROBOT_NAME)/os_imu"
     point_cloud_frame: "$(env ROBOT_NAME)/os_sensor"
     proc_mask: PCL|IMU|TLM|RAW
-    point_type: original
+    point_type: native
     organized: true
     destagger: true
     min_range: 0.0

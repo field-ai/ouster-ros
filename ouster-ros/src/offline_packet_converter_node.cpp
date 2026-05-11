@@ -1,7 +1,9 @@
 #include "offline_packet_converter_node.h"
+#include "custom_profiles.h"
 
 OfflinePacketConverterNode::OfflinePacketConverterNode(const rclcpp::NodeOptions& options)
   : Node("offline_packet_converter_node", options) {
+  ouster_ros::register_custom_profiles();
   // setup ros params
   setupParameters();
 
