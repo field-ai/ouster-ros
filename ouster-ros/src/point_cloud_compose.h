@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -176,6 +178,7 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
     const uint32_t* r_data = nullptr;
     const uint32_t* g_data = nullptr;
     const uint32_t* b_data = nullptr;
+    uint32_t p95_r = 1, p95_g = 1, p95_b = 1;
     if constexpr (handle_rgb) {
         if (ls.has_field(ouster::sdk::core::ChanField::RGB)) {
             rgb_data = ls.field(ouster::sdk::core::ChanField::RGB)
@@ -186,6 +189,21 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
             r_data = ls.field<uint32_t>(ouster::sdk::core::ChanField::R).data();
             g_data = ls.field<uint32_t>(ouster::sdk::core::ChanField::G).data();
             b_data = ls.field<uint32_t>(ouster::sdk::core::ChanField::B).data();
+
+            const size_t n_pixels = ls.h * ls.w;
+            std::vector<uint32_t> rv(n_pixels), gv(n_pixels), bv(n_pixels);
+            for (size_t idx = 0; idx < n_pixels; ++idx) {
+                rv[idx] = r_data[idx] & 0xFFFFu;
+                gv[idx] = g_data[idx] & 0xFFFFu;
+                bv[idx] = b_data[idx] & 0xFFFFu;
+            }
+            const size_t p95_idx = n_pixels * 95 / 100;
+            std::nth_element(rv.begin(), rv.begin() + p95_idx, rv.end());
+            std::nth_element(gv.begin(), gv.begin() + p95_idx, gv.end());
+            std::nth_element(bv.begin(), bv.begin() + p95_idx, bv.end());
+            p95_r = std::max(1u, rv[p95_idx]);
+            p95_g = std::max(1u, gv[p95_idx]);
+            p95_b = std::max(1u, bv[p95_idx]);
         }
     }
 
@@ -231,9 +249,12 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
                     pt.g = impl::f16_rgb_to_u8(rgb_data[src_idx * 3 + 1].data);
                     pt.b = impl::f16_rgb_to_u8(rgb_data[src_idx * 3 + 2].data);
                 } else if (r_data) {
-                    pt.r = static_cast<uint8_t>(r_data[src_idx] >> 8);
-                    pt.g = static_cast<uint8_t>(g_data[src_idx] >> 8);
-                    pt.b = static_cast<uint8_t>(b_data[src_idx] >> 8);
+                    uint32_t rv = r_data[src_idx] & 0xFFFFu;
+                    uint32_t gv = g_data[src_idx] & 0xFFFFu;
+                    uint32_t bv = b_data[src_idx] & 0xFFFFu;
+                    pt.r = static_cast<uint8_t>(std::min(255u, rv * 255u / p95_r));
+                    pt.g = static_cast<uint8_t>(std::min(255u, gv * 255u / p95_g));
+                    pt.b = static_cast<uint8_t>(std::min(255u, bv * 255u / p95_b));
                 } else {
                     pt.r = 0; pt.g = 0; pt.b = 0;
                 }
