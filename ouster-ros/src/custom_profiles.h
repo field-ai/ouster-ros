@@ -16,7 +16,7 @@ inline void register_custom_profiles() {
     if (registered) return;
     registered = true;
 
-    using ouster::sdk::core::ChanField;
+    namespace CF = ouster::sdk::core::ChanField;
     using ouster::sdk::core::ChanFieldType;
     using ouster::sdk::core::impl::FieldInfo;
 
@@ -24,19 +24,19 @@ inline void register_custom_profiles() {
     // 20 bytes/pixel: RANGE(19b) FLAGS(5b) REFL(8b) SIG(16b) NIR(16b)
     //                 R(16b) G(16b) B(16b) R-ATTEN(16b) G-ATTEN(16b) B-ATTEN(16b)
     std::vector<std::pair<std::string, FieldInfo>> fields{
-        {ChanField::RANGE,        {ChanFieldType::UINT32, 0,  0x0007FFFF, 0}},
-        {ChanField::FLAGS,        {ChanFieldType::UINT8,  2,  0xF8,       3}},
-        {ChanField::REFLECTIVITY, {ChanFieldType::UINT8,  3,  0,          0}},
-        {ChanField::SIGNAL,       {ChanFieldType::UINT16, 4,  0,          0}},
-        {ChanField::NEAR_IR,      {ChanFieldType::UINT16, 6,  0,          0}},
-        {ChanField::R,            {ChanFieldType::UINT32, 8,  0xFFFF,     0}},
-        {ChanField::G,            {ChanFieldType::UINT32, 10, 0xFFFF,     0}},
-        {ChanField::B,            {ChanFieldType::UINT32, 12, 0xFFFF,     0}},
-        {ChanField::RAW32_WORD1,  {ChanFieldType::UINT32, 0,  0,          0}},
-        {ChanField::RAW32_WORD2,  {ChanFieldType::UINT32, 4,  0,          0}},
-        {ChanField::RAW32_WORD3,  {ChanFieldType::UINT32, 8,  0,          0}},
-        {ChanField::RAW32_WORD4,  {ChanFieldType::UINT32, 12, 0,          0}},
-        {ChanField::RAW32_WORD5,  {ChanFieldType::UINT32, 16, 0,          0}},
+        {CF::RANGE,        {ChanFieldType::UINT32, 0,  0x0007FFFF, 0}},
+        {CF::FLAGS,        {ChanFieldType::UINT8,  2,  0xF8,       3}},
+        {CF::REFLECTIVITY, {ChanFieldType::UINT8,  3,  0,          0}},
+        {CF::SIGNAL,       {ChanFieldType::UINT16, 4,  0,          0}},
+        {CF::NEAR_IR,      {ChanFieldType::UINT16, 6,  0,          0}},
+        {CF::R,            {ChanFieldType::UINT32, 8,  0xFFFF,     0}},
+        {CF::G,            {ChanFieldType::UINT32, 10, 0xFFFF,     0}},
+        {CF::B,            {ChanFieldType::UINT32, 12, 0xFFFF,     0}},
+        {CF::RAW32_WORD1,  {ChanFieldType::UINT32, 0,  0,          0}},
+        {CF::RAW32_WORD2,  {ChanFieldType::UINT32, 4,  0,          0}},
+        {CF::RAW32_WORD3,  {ChanFieldType::UINT32, 8,  0,          0}},
+        {CF::RAW32_WORD4,  {ChanFieldType::UINT32, 12, 0,          0}},
+        {CF::RAW32_WORD5,  {ChanFieldType::UINT32, 16, 0,          0}},
     };
 
     ouster::sdk::core::add_custom_profile(
