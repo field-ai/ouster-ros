@@ -152,8 +152,7 @@ struct BatchState {
   BatchState(const ouster::sdk::core::SensorInfo& info,
              const ouster::sdk::core::PacketFormat& pf)
       : batcher(info),
-        scan(info.format.columns_per_frame, info.format.pixels_per_column,
-             info.format.udp_profile_lidar),
+        scan(info),
         lidar_packet(pf.lidar_packet_size),
         imu_packet(pf.imu_packet_size) {
     auto packet_format = std::make_shared<ouster::sdk::core::PacketFormat>(pf);
@@ -230,6 +229,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  ouster_ros::register_custom_profiles();
   const auto info = load_metadata(args.metadata);
   const auto& pf = ouster::sdk::core::get_format(info);
 
