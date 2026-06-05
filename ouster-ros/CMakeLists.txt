@@ -28,6 +28,10 @@ find_package(OpenCV REQUIRED)
 if(NOT OpenCV_LIBS)
   set(OpenCV_LIBS ${OpenCV_LIBRARIES})
 endif()
+# Needed by the pcap_to_mcap offline converter (built under BUILD_PCAP)
+find_package(rosbag2_cpp REQUIRED)
+find_package(rosbag2_storage REQUIRED)
+find_package(rosbag2_transport REQUIRED)
 
 # ==== Options ====
 add_compile_options(-Wall -Wextra)
@@ -192,6 +196,32 @@ rclcpp_components_register_node(os_pcap_component
   PLUGIN "ouster_ros::OusterPcap"
   EXECUTABLE os_pcap
 )
+
+# ==== pcap_to_mcap executable (offline pcap -> pointcloud mcap converter) ====
+add_executable(pcap_to_mcap
+  src/pcap_to_mcap.cpp
+)
+target_include_directories(pcap_to_mcap
+  PUBLIC
+    ${_ouster_ros_INCLUDE_DIRS}
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(pcap_to_mcap
+  ouster_ros_library
+  ${OUSTER_TARGET_LINKS}
+)
+ament_target_dependencies(pcap_to_mcap
+  rclcpp
+  rosbag2_cpp
+  rosbag2_storage
+  sensor_msgs
+  ouster_sensor_msgs
+  pcl_conversions
+  rosbag2_transport
+)
 endif()
 
 # ==== Test ====
@@ -238,6 +268,14 @@ install(
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
+
+if (BUILD_PCAP)
+install(
+  TARGETS
+    pcap_to_mcap
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+endif()
 
 install(
   DIRECTORY

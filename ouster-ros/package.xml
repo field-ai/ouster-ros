@@ -24,6 +24,9 @@
   <depend>cv_bridge</depend>
   <depend>curl</depend>
   <depend>spdlog</depend>
+  <depend>rosbag2_cpp</depend>
+  <depend>rosbag2_storage</depend>
+  <depend>rosbag2_transport</depend>
 
   <build_depend>libjsoncpp-dev</build_depend>
   <build_depend>eigen</build_depend>
