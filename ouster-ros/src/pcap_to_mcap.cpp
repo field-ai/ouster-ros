@@ -293,9 +293,12 @@ int main(int argc, char** argv) {
   uint64_t scan_counter = 0;
   uint64_t imu_counter = 0;
 
-  // Bag log timestamp = pcap host receive time (when the packet would have arrived live),
-  // not the message header timestamp (which is the sensor data timestamp from PTP).
-  // For PTP-synced sensors and offline replay these can be far apart.
+  // Bag log timestamp = each message's sensor (PTP) header time, so every topic is recorded
+  // on the sensor clock and is strictly increasing per topic. The cloud is logged at scan_ts
+  // (which is also its header.stamp); IMU messages are logged at each measurement's header
+  // time (see on_imu). NOTE: a scan is only emitted ~one frame after scan_ts, so in the
+  // global interleaved log_time stream each cloud sits ~one frame "behind" the surrounding
+  // IMU. That is expected for a sensor-time bag; per-topic ordering is monotonic.
   uint64_t current_scan_log_ts = 0;
 
   auto point_cloud_processor = ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
@@ -321,7 +324,14 @@ int main(int argc, char** argv) {
   };
   ImuSink on_imu = [&](const ouster::sdk::core::ImuPacket& packet) {
     for (const auto& imu : imu_handler(packet)) {
-      writer->write(serialize(imu, imu_topic, packet.host_timestamp));
+      // Log each IMU measurement at its own sensor (PTP) header time. A single packet
+      // carries many measurements; stamping them all with packet.host_timestamp would
+      // create N-way log_time ties that readers ordering by recv time shuffle, making the
+      // header.stamp sequence appear non-monotonic. Using the per-measurement header time
+      // keeps the IMU stream strictly increasing and tie-free under any reader.
+      const uint64_t stamp_ns = static_cast<uint64_t>(imu.header.stamp.sec) * 1000000000ULL +
+                                static_cast<uint64_t>(imu.header.stamp.nanosec);
+      writer->write(serialize(imu, imu_topic, stamp_ns));
       ++imu_counter;
     }
   };
