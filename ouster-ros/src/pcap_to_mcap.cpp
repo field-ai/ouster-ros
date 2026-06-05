@@ -12,13 +12,13 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include <ouster/image_processing.h>
 #include <ouster/lidar_scan.h>
 #include <ouster/os_pcap.h>
 #include <ouster/types.h>
 
 #include "imu_packet_handler.h"
 #include "point_cloud_processor_factory.h"
+#include "rgb_tonemap.h"
 
 #include <getopt.h>
 #include <unistd.h>
@@ -35,28 +35,9 @@
 #include <string>
 #include <vector>
 
-namespace ChanField = ouster::sdk::core::ChanField;
-
 namespace {
 
 constexpr size_t MAX_BAGFILE_SIZE_BYTES = 512ULL * 1024ULL * 1024ULL;  // 512 MiB, matches pcap.zst rotation
-
-// RGB tone-mapping helpers. These mirror lidar_packet_handler.h so that the
-// offline pcap conversion produces the same R8/G8/B8 channels (and therefore
-// the same packed `rgb` point field) that the live driver produces.
-inline float rgb_f16_bits_to_f32(uint16_t bits) {
-  if (bits == 0) return 0.0f;
-  const uint32_t expanded = static_cast<uint32_t>(bits + 0x1C000u) << 13;
-  float result;
-  std::memcpy(&result, &expanded, sizeof(float));
-  return result;
-}
-
-inline uint8_t rgb_f32_to_u8(float v) {
-  if (v < 0.0f) v = 0.0f;
-  if (v > 1.0f) v = 1.0f;
-  return static_cast<uint8_t>(v * 255.0f + 0.5f);
-}
 
 struct Args {
   std::vector<std::string> pcaps;
@@ -168,13 +149,7 @@ struct BatchState {
   ouster::sdk::core::LidarPacket lidar_packet;
   ouster::sdk::core::ImuPacket imu_packet;
   bool is_first_scan = true;
-
-  // RGB tone-mapping state (only used for RGB16 profiles).
-  bool has_rgb = false;
-  ouster::sdk::core::img_t<float> r_field_float;
-  ouster::sdk::core::img_t<float> g_field_float;
-  ouster::sdk::core::img_t<float> b_field_float;
-  std::unique_ptr<ouster::sdk::core::image::AutoExposure> auto_exposure;
+  ouster_ros::RgbTonemapper rgb_tonemapper;
 
   BatchState(const ouster::sdk::core::SensorInfo& info,
              const ouster::sdk::core::PacketFormat& pf)
@@ -188,59 +163,11 @@ struct BatchState {
     auto packet_format = std::make_shared<ouster::sdk::core::PacketFormat>(pf);
     lidar_packet.format = packet_format;
     imu_packet.format = packet_format;
-
-    const auto profile = info.format.udp_profile_lidar;
-    if (profile == ouster::sdk::core::UDPProfileLidar::RNG19_RFL8_SIG16_NIR16_RGB16 ||
-        profile == ouster::sdk::core::UDPProfileLidar::RNG19_RFL8_SIG16_NIR16_RGB16_DUAL) {
-      has_rgb = true;
-      using ouster::sdk::core::fd_array;
-      using ouster::sdk::core::img_t;
-      r_field_float = img_t<float>(info.format.columns_per_frame, info.format.pixels_per_column);
-      g_field_float = img_t<float>(info.format.columns_per_frame, info.format.pixels_per_column);
-      b_field_float = img_t<float>(info.format.columns_per_frame, info.format.pixels_per_column);
-      auto_exposure = std::make_unique<ouster::sdk::core::image::AutoExposure>();
-      scan.add_field(ChanField::R8, fd_array<uint8_t>(scan.h, scan.w));
-      scan.add_field(ChanField::G8, fd_array<uint8_t>(scan.h, scan.w));
-      scan.add_field(ChanField::B8, fd_array<uint8_t>(scan.h, scan.w));
-    }
+    rgb_tonemapper.setup(scan, info);
   }
 
-  // Derive the 8-bit R8/G8/B8 channels (consumed by the point cloud processor)
-  // from the raw 16-bit R/G/B channels the batcher populates, applying the same
-  // auto-exposure tone-mapping as the live driver. No-op for non-RGB profiles.
-  void apply_rgb_tonemap() {
-    if (!has_rgb) return;
-    using ouster::sdk::core::img_t;
-    Eigen::Ref<img_t<uint16_t>> r_field = scan.field<uint16_t>(ChanField::R);
-    Eigen::Ref<img_t<uint16_t>> g_field = scan.field<uint16_t>(ChanField::G);
-    Eigen::Ref<img_t<uint16_t>> b_field = scan.field<uint16_t>(ChanField::B);
-
-    const uint16_t* r_in = r_field.data();
-    const uint16_t* g_in = g_field.data();
-    const uint16_t* b_in = b_field.data();
-    float* r_out = r_field_float.data();
-    float* g_out = g_field_float.data();
-    float* b_out = b_field_float.data();
-    for (Eigen::Index i = 0; i < r_field.size(); ++i) {
-      r_out[i] = rgb_f16_bits_to_f32(r_in[i]);
-      g_out[i] = rgb_f16_bits_to_f32(g_in[i]);
-      b_out[i] = rgb_f16_bits_to_f32(b_in[i]);
-    }
-
-    auto_exposure->update(r_field_float, g_field_float, b_field_float, true);
-
-    Eigen::Ref<img_t<uint8_t>> r8 = scan.field<uint8_t>(ChanField::R8);
-    Eigen::Ref<img_t<uint8_t>> g8 = scan.field<uint8_t>(ChanField::G8);
-    Eigen::Ref<img_t<uint8_t>> b8 = scan.field<uint8_t>(ChanField::B8);
-    uint8_t* r8_out = r8.data();
-    uint8_t* g8_out = g8.data();
-    uint8_t* b8_out = b8.data();
-    for (Eigen::Index i = 0; i < r8.size(); ++i) {
-      r8_out[i] = rgb_f32_to_u8(r_out[i]);
-      g8_out[i] = rgb_f32_to_u8(g_out[i]);
-      b8_out[i] = rgb_f32_to_u8(b_out[i]);
-    }
-  }
+  // Derive R8/G8/B8 from the batched 16-bit R/G/B before composing the cloud.
+  void apply_rgb_tonemap() { rgb_tonemapper.apply(scan); }
 };
 
 using ScanSink = std::function<void(const ouster::sdk::core::LidarScan&, uint64_t)>;
