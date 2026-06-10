@@ -5,19 +5,20 @@
     lidar_mode: "$(env FAI_LIDAR_MODE 512x10)"
     timestamp_mode: 'TIME_FROM_PTP_1588'
     ptp_utc_tai_offset: 0.0
-    udp_profile_lidar: 'RNG19_RFL8_SIG16_NIR16'
-    metadata: "$(env ROS_LOG_DIR /tmp/ros)/ouster_metadata.json"
+    udp_profile_lidar: 'RNG19_RFL8_SIG16_NIR16_DUAL'
+    metadata: "$(env OUSTER_METADATA_DIR /tmp)/ouster_metadata.json"
     lidar_port: 0
     imu_port: 0
     sensor_frame: "$(env ROBOT_NAME)/os_sensor"
     lidar_frame: "$(env ROBOT_NAME)/os_lidar"
     imu_frame: "$(env ROBOT_NAME)/os_imu"
     point_cloud_frame: "$(env ROBOT_NAME)/os_sensor"
-    proc_mask: PCL|IMU|TLM|RAW
+    proc_mask: PCL|IMU|TLM
     point_type: original
     organized: true
     destagger: true
     min_range: 0.0
     max_range: 1000.0
+    auto_start: true
     v_reduction: 1
     mask_path: ''
