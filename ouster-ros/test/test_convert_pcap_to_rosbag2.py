@@ -1,4 +1,4 @@
-"""Unit tests for scripts/convert_pcap.py (pcap -> pointcloud orchestration)."""
+"""Unit tests for scripts/convert_pcap_to_rosbag2.py (pcap -> pointcloud orchestration)."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-# Load scripts/convert_pcap.py (installed as a program, not an importable package).
-_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "convert_pcap.py"
-_spec = importlib.util.spec_from_file_location("convert_pcap", _SCRIPT)
+# Load the script (installed as a program, not an importable package).
+_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "convert_pcap_to_rosbag2.py"
+_spec = importlib.util.spec_from_file_location("convert_pcap_to_rosbag2", _SCRIPT)
 assert _spec and _spec.loader
 convert_pcap = importlib.util.module_from_spec(_spec)
 sys.modules["convert_pcap"] = convert_pcap

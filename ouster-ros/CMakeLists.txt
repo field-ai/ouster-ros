@@ -277,7 +277,7 @@ if(BUILD_TESTING)
   target_link_libraries(${PROJECT_NAME}_test ouster_ros_library)
 
   find_package(ament_cmake_pytest REQUIRED)
-  ament_add_pytest_test(convert_pcap_test test/test_convert_pcap.py)
+  ament_add_pytest_test(convert_pcap_to_rosbag2_test test/test_convert_pcap_to_rosbag2.py)
 endif()
 
 
@@ -347,7 +347,7 @@ install(
 
 install(
   PROGRAMS
-    scripts/convert_pcap.py
+    scripts/convert_pcap_to_rosbag2.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
