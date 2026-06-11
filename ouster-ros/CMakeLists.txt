@@ -275,6 +275,9 @@ if(BUILD_TESTING)
     $<INSTALL_INTERFACE:include>
   )
   target_link_libraries(${PROJECT_NAME}_test ouster_ros_library)
+
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(convert_pcap_test test/test_convert_pcap.py)
 endif()
 
 
@@ -340,6 +343,12 @@ install(
     config
   DESTINATION
     share/${PROJECT_NAME}
+)
+
+install(
+  PROGRAMS
+    scripts/convert_pcap.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 ament_export_include_directories(include) 
