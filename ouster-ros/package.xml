@@ -40,9 +40,13 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>libjsoncpp</exec_depend>
+  <exec_depend>python3-zstandard</exec_depend>
 
   <test_depend>gtest</test_depend>
   <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>python3-pytest-mock</test_depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>
 
