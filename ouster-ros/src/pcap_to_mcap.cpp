@@ -235,7 +235,11 @@ int main(int argc, char** argv) {
 
   const std::string frame_id = args.robot_namespace + "/os_sensor";
   const std::string lidar_topic = "/" + args.robot_namespace + "/ouster/raw_points/highres";
+  const std::string dual_lidar_topic = "/" + args.robot_namespace + "/ouster/dual_return/raw_points/highres";
   const std::string imu_topic = "/" + args.robot_namespace + "/ouster/imu";
+
+  // The metadata's profile determines the number of returns; dual-return profiles yield a 2nd cloud.
+  const bool has_dual_return = info.num_returns() > 1;
 
   // Writer
   rosbag2_cpp::ConverterOptions converter_options;
@@ -272,6 +276,14 @@ int main(int argc, char** argv) {
   lidar_meta.serialization_format = "cdr";
   writer->create_topic(lidar_meta);
 
+  if (has_dual_return) {
+    rosbag2_storage::TopicMetadata dual_lidar_meta;
+    dual_lidar_meta.name = dual_lidar_topic;
+    dual_lidar_meta.type = "sensor_msgs/msg/PointCloud2";
+    dual_lidar_meta.serialization_format = "cdr";
+    writer->create_topic(dual_lidar_meta);
+  }
+
   rosbag2_storage::TopicMetadata imu_meta;
   imu_meta.name = imu_topic;
   imu_meta.type = "sensor_msgs/msg/Imu";
@@ -292,8 +304,10 @@ int main(int argc, char** argv) {
       static_cast<uint32_t>(args.min_range * 1e3),
       static_cast<uint32_t>(args.max_range * 1e3), args.v_reduction, args.mask_path,
       [&](ouster_ros::PointCloudProcessor_OutputType msgs) {
-        for (const auto& cloud : msgs) {
-          writer->write(serialize(*cloud, lidar_topic, current_scan_log_ts));
+        // msgs[0] is the first return; index >= 1 is the dual (second) return.
+        for (size_t i = 0; i < msgs.size(); ++i) {
+          const std::string& topic = (i == 0) ? lidar_topic : dual_lidar_topic;
+          writer->write(serialize(*msgs[i], topic, current_scan_log_ts));
         }
       });
 
