@@ -91,6 +91,7 @@ bool OfflinePacketConverterNode::init() {
   input_imu_topic_ = "/" + robot_name_ + "/ouster/imu";
   frame_id_ = robot_name_ + "/os_sensor";
   output_lidar_topic_ = "/" + robot_name_ + "/raw_velodyne_points";
+  output_dual_lidar_topic_ = "/" + robot_name_ + "/dual_return/raw_velodyne_points";
   timestamp_mode_ = "TIME_FROM_PTP_1588";
 
   if (std::filesystem::exists(output_bag_dir_)) {
@@ -161,6 +162,15 @@ bool OfflinePacketConverterNode::setupReaderWriter() {
   cloud_topic.type = "sensor_msgs/msg/PointCloud2";
   cloud_topic.serialization_format = "cdr";
   writer_->create_topic(cloud_topic);
+
+  // Dual-return profile: also emit the second return on a parallel topic.
+  if (ouster_metadata_.num_returns() > 1) {
+    rosbag2_storage::TopicMetadata dual_cloud_topic;
+    dual_cloud_topic.name = output_dual_lidar_topic_;
+    dual_cloud_topic.type = "sensor_msgs/msg/PointCloud2";
+    dual_cloud_topic.serialization_format = "cdr";
+    writer_->create_topic(dual_cloud_topic);
+  }
 
   if (bag_has_input_imu_topic) {
     rosbag2_storage::TopicMetadata imu_topic;
@@ -371,13 +381,15 @@ bool OfflinePacketConverterNode::process() {
 }
 
 void OfflinePacketConverterNode::writePointClouds(ouster_ros::PointCloudProcessor_OutputType& msgs) {
-  for (auto& cloud_msg : msgs) {
-    rclcpp::Serialization<sensor_msgs::msg::PointCloud2> serialization;
+  rclcpp::Serialization<sensor_msgs::msg::PointCloud2> serialization;
+  // msgs[0] is the first return; index >= 1 is the dual (second) return.
+  for (size_t i = 0; i < msgs.size(); ++i) {
+    const auto& cloud_msg = msgs[i];
     auto serialized = std::make_shared<rclcpp::SerializedMessage>();
     serialization.serialize_message(cloud_msg.get(), serialized.get());
 
     auto bag_msg = std::make_shared<rosbag2_storage::SerializedBagMessage>();
-    bag_msg->topic_name = output_lidar_topic_;
+    bag_msg->topic_name = (i == 0) ? output_lidar_topic_ : output_dual_lidar_topic_;
     bag_msg->serialized_data =
         std::shared_ptr<rcutils_uint8_array_t>(serialized, &serialized->get_rcl_serialized_message());
     bag_msg->recv_timestamp =

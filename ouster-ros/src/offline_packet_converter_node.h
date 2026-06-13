@@ -164,6 +164,11 @@ private:
   std::string output_lidar_topic_;
 
   /**
+   * @brief Output dual-return lidar topic name (used only when the profile is dual-return).
+   */
+  std::string output_dual_lidar_topic_;
+
+  /**
    * @brief Frame ID for point cloud messages.
    */
   std::string frame_id_;
