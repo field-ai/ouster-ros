@@ -12,6 +12,7 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
+#include <ouster/image_processing.h>
 #include <ouster/lidar_scan.h>
 #include <ouster/os_pcap.h>
 #include <ouster/types.h>
@@ -142,6 +143,17 @@ std::shared_ptr<rosbag2_storage::SerializedBagMessage> serialize(
   return bag_msg;
 }
 
+ouster::sdk::core::LidarScan make_batch_scan(const ouster::sdk::core::SensorInfo& info) {
+  const auto profile = info.format.udp_profile_lidar;
+  if (profile == ouster::sdk::core::UDPProfileLidar::RNG19_RFL8_SIG16_NIR16_RGB16 ||
+      profile == ouster::sdk::core::UDPProfileLidar::RNG19_RFL8_SIG16_NIR16_RGB16_DUAL) {
+    return ouster::sdk::core::LidarScan(info);
+  }
+  return ouster::sdk::core::LidarScan(info.format.columns_per_frame,
+                                      info.format.pixels_per_column,
+                                      info.format.udp_profile_lidar);
+}
+
 struct BatchState {
   ouster::sdk::core::ScanBatcher batcher;
   ouster::sdk::core::LidarScan scan;
@@ -149,16 +161,72 @@ struct BatchState {
   ouster::sdk::core::ImuPacket imu_packet;
   bool is_first_scan = true;
 
+  bool has_rgb = false;
+  ouster::sdk::core::img_t<float> r_field_float;
+  ouster::sdk::core::img_t<float> g_field_float;
+  ouster::sdk::core::img_t<float> b_field_float;
+  std::unique_ptr<ouster::sdk::core::image::AutoExposure> auto_exposure;
+
   BatchState(const ouster::sdk::core::SensorInfo& info,
              const ouster::sdk::core::PacketFormat& pf)
       : batcher(info),
-        scan(info.format.columns_per_frame, info.format.pixels_per_column,
-             info.format.udp_profile_lidar),
+        scan(make_batch_scan(info)),
         lidar_packet(pf.lidar_packet_size),
         imu_packet(pf.imu_packet_size) {
     auto packet_format = std::make_shared<ouster::sdk::core::PacketFormat>(pf);
     lidar_packet.format = packet_format;
     imu_packet.format = packet_format;
+
+    const auto profile = info.format.udp_profile_lidar;
+    if (profile == ouster::sdk::core::UDPProfileLidar::RNG19_RFL8_SIG16_NIR16_RGB16 ||
+        profile == ouster::sdk::core::UDPProfileLidar::RNG19_RFL8_SIG16_NIR16_RGB16_DUAL) {
+      has_rgb = true;
+      const uint32_t H = info.format.pixels_per_column;
+      const uint32_t W = info.format.columns_per_frame;
+      r_field_float = ouster::sdk::core::img_t<float>(H, W);
+      g_field_float = ouster::sdk::core::img_t<float>(H, W);
+      b_field_float = ouster::sdk::core::img_t<float>(H, W);
+      auto_exposure = std::make_unique<ouster::sdk::core::image::AutoExposure>();
+      using ouster::sdk::core::fd_array;
+      scan.add_field(ouster::sdk::core::ChanField::R_U8, fd_array<uint8_t>(H, W));
+      scan.add_field(ouster::sdk::core::ChanField::G_U8, fd_array<uint8_t>(H, W));
+      scan.add_field(ouster::sdk::core::ChanField::B_U8, fd_array<uint8_t>(H, W));
+    }
+  }
+
+  void apply_rgb_auto_exposure() {
+    if (!has_rgb) return;
+    namespace core = ouster::sdk::core;
+    using core::img_t;
+
+    Eigen::Ref<img_t<uint16_t>> r_in = scan.field<uint16_t>(core::ChanField::R);
+    Eigen::Ref<img_t<uint16_t>> g_in = scan.field<uint16_t>(core::ChanField::G);
+    Eigen::Ref<img_t<uint16_t>> b_in = scan.field<uint16_t>(core::ChanField::B);
+    const uint16_t* rp = r_in.data();
+    const uint16_t* gp = g_in.data();
+    const uint16_t* bp = b_in.data();
+    float* r_out = r_field_float.data();
+    float* g_out = g_field_float.data();
+    float* b_out = b_field_float.data();
+    for (Eigen::Index i = 0; i < r_in.size(); ++i) {
+      r_out[i] = f16_bits_to_f32(rp[i]);
+      g_out[i] = f16_bits_to_f32(gp[i]);
+      b_out[i] = f16_bits_to_f32(bp[i]);
+    }
+
+    auto_exposure->update(r_field_float, g_field_float, b_field_float, true);
+
+    Eigen::Ref<img_t<uint8_t>> r_u8 = scan.field<uint8_t>(core::ChanField::R_U8);
+    Eigen::Ref<img_t<uint8_t>> g_u8 = scan.field<uint8_t>(core::ChanField::G_U8);
+    Eigen::Ref<img_t<uint8_t>> b_u8 = scan.field<uint8_t>(core::ChanField::B_U8);
+    uint8_t* ru = r_u8.data();
+    uint8_t* gu = g_u8.data();
+    uint8_t* bu = b_u8.data();
+    for (Eigen::Index i = 0; i < r_u8.size(); ++i) {
+      ru[i] = f32_to_u8(r_out[i]);
+      gu[i] = f32_to_u8(g_out[i]);
+      bu[i] = f32_to_u8(b_out[i]);
+    }
   }
 };
 
@@ -188,6 +256,7 @@ void process_pcap(const std::string& pcap_path,
           if (state.is_first_scan) {
             state.is_first_scan = false;
           } else {
+            state.apply_rgb_auto_exposure();
             const uint64_t scan_ts = extract_scan_timestamp(state.scan, host_ts);
             on_scan(state.scan, scan_ts);
           }
