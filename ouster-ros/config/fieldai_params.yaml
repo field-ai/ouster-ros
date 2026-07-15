@@ -22,3 +22,6 @@
     auto_start: true
     v_reduction: 1
     mask_path: ''
+    # Keep the dual-return udp profile on the wire for pcap capture, but only
+    # compose/publish the first return online (0 = publish all returns).
+    max_returns: 1
