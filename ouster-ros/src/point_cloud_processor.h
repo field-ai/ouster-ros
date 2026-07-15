@@ -43,13 +43,18 @@ class PointCloudProcessor {
                         uint32_t min_range, uint32_t max_range,
                         int rows_step, const std::string& mask_path,
                         ScanToCloudFn scan_to_cloud_fn_,
-                        PointCloudProcessor_PostProcessingFn post_processing_fn_)
+                        PointCloudProcessor_PostProcessingFn post_processing_fn_,
+                        int num_returns = 0)
         : frame(frame_id),
           pixel_shift_by_row(info.format.pixel_shift_by_row),
           cloud{info.format.columns_per_frame,
                 info.format.pixels_per_column / rows_step},
           min_range_(min_range), max_range_(max_range),
-          pc_msgs(info.num_returns()),
+          // num_returns caps how many returns get composed/published;
+          // 0 means every return the udp profile carries.
+          pc_msgs(num_returns > 0
+                      ? std::min(num_returns, info.num_returns())
+                      : info.num_returns()),
           scan_to_cloud_fn(scan_to_cloud_fn_),
           post_processing_fn(post_processing_fn_) {
         for (size_t i = 0; i < pc_msgs.size(); ++i)
@@ -112,11 +117,12 @@ class PointCloudProcessor {
                                      uint32_t min_range, uint32_t max_range,
                                      int rows_step, const std::string& mask_path,
                                      ScanToCloudFn scan_to_cloud_fn_,
-                                     PointCloudProcessor_PostProcessingFn post_processing_fn) {
+                                     PointCloudProcessor_PostProcessingFn post_processing_fn,
+                                     int num_returns = 0) {
         auto handler = std::make_shared<PointCloudProcessor>(
             info, frame, apply_lidar_to_sensor_transform,
             min_range, max_range, rows_step, mask_path,
-            scan_to_cloud_fn_, post_processing_fn);
+            scan_to_cloud_fn_, post_processing_fn, num_returns);
 
         return [handler](const ouster::sdk::core::LidarScan& lidar_scan, uint64_t scan_ts,
                          const rclcpp::Time& msg_ts) {

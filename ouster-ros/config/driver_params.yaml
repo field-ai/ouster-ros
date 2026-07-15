@@ -167,3 +167,8 @@ ouster/os_driver:
     # mask_path[optional]: path to an image file that will be used to mask parts of the
     # pointcloud.
     mask_path: ''
+    # max_returns[optional]: cap on how many returns are composed/published as point
+    # clouds; 0 processes every return the udp profile carries. Lets a dual-return
+    # profile stay active for raw packet capture while only the first return is
+    # published.
+    max_returns: 0

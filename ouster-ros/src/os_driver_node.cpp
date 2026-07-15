@@ -49,6 +49,7 @@ class OusterDriver : public OusterSensor {
         declare_parameter("v_reduction", 1);
         declare_parameter("min_scan_valid_columns_ratio", 0.0);
         declare_parameter("mask_path", "");
+        declare_parameter("max_returns", 0);
     }
 
     ~OusterDriver() override {
@@ -97,8 +98,23 @@ class OusterDriver : public OusterSensor {
 
         std::vector<LidarScanProcessor> processors;
         if (impl::check_token(tokens, "PCL")) {
-            lidar_pubs.resize(num_returns);
-            for (int i = 0; i < num_returns; ++i) {
+            // max_returns caps how many returns are composed/published as
+            // point clouds without touching the sensor udp profile, so a
+            // dual-return profile can stay active for raw packet capture
+            // while only the first return is processed. 0 processes all
+            // returns the profile carries.
+            auto max_returns =
+                static_cast<int>(get_parameter("max_returns").as_int());
+            if (max_returns < 0) {
+                RCLCPP_FATAL(get_logger(),
+                             "max_returns needs to be non-negative");
+                throw std::runtime_error("negative max_returns!");
+            }
+            const int pcl_returns = max_returns > 0
+                                        ? std::min(num_returns, max_returns)
+                                        : num_returns;
+            lidar_pubs.resize(pcl_returns);
+            for (int i = 0; i < pcl_returns; ++i) {
                 lidar_pubs[i] = create_publisher<sensor_msgs::msg::PointCloud2>(
                     topic_for_return("points", i), selected_qos);
             }
@@ -137,7 +153,8 @@ class OusterDriver : public OusterSensor {
                     [this](PointCloudProcessor_OutputType msgs) {
                         for (size_t i = 0; i < msgs.size(); ++i)
                             lidar_pubs[i]->publish(*msgs[i]);
-                    }
+                    },
+                    pcl_returns
                 )
             );
 
