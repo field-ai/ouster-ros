@@ -233,7 +233,9 @@ int main(int argc, char** argv) {
   const auto info = load_metadata(args.metadata);
   const auto& pf = ouster::sdk::core::get_format(info);
 
-  const std::string frame_id = args.robot_namespace + "/os_sensor";
+  // Frames must match what the live driver publishes (fieldai_params.yaml)
+  const std::string lidar_frame_id = args.robot_namespace + "/os_sensor";
+  const std::string imu_frame_id = args.robot_namespace + "/os_imu";
   const std::string lidar_topic = "/" + args.robot_namespace + "/ouster/raw_points/highres";
   const std::string dual_lidar_topic = "/" + args.robot_namespace + "/ouster/dual_return/raw_points/highres";
   const std::string imu_topic = "/" + args.robot_namespace + "/ouster/imu";
@@ -299,7 +301,7 @@ int main(int argc, char** argv) {
   uint64_t current_scan_log_ts = 0;
 
   auto point_cloud_processor = ouster_ros::PointCloudProcessorFactory::create_point_cloud_processor(
-      args.point_type, info, frame_id,
+      args.point_type, info, lidar_frame_id,
       /*apply_lidar_to_sensor_transform=*/true, args.organized, args.destagger,
       static_cast<uint32_t>(args.min_range * 1e3),
       static_cast<uint32_t>(args.max_range * 1e3), args.v_reduction, args.mask_path,
@@ -311,7 +313,7 @@ int main(int argc, char** argv) {
         }
       });
 
-  auto imu_handler = ouster_ros::ImuPacketHandler::create(info, frame_id, args.timestamp_mode,
+  auto imu_handler = ouster_ros::ImuPacketHandler::create(info, imu_frame_id, args.timestamp_mode,
                                                           args.ptp_utc_tai_offset);
 
   ScanSink on_scan = [&](const ouster::sdk::core::LidarScan& scan, uint64_t scan_ts) {
