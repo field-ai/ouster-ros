@@ -51,6 +51,7 @@ _PARAM_DEFAULTS = {
     "min_range": 0.0,
     "max_range": 1000.0,
     "v_reduction": 1,
+    "max_returns": 0,
     "mask_path": "",
     "timestamp_mode": "TIME_FROM_PTP_1588",
     "ptp_utc_tai_offset": 0,
@@ -92,6 +93,7 @@ def launch_setup(context, *args, **kwargs):
         "--min-range", str(p("min_range")),
         "--max-range", str(p("max_range")),
         "--v-reduction", str(int(p("v_reduction"))),
+        "--max-returns", str(int(p("max_returns"))),
         "--timestamp-mode", str(p("timestamp_mode")),
         # yaml stores the offset as a float (seconds); pcap_to_mcap wants an int.
         "--ptp-utc-tai-offset", str(int(float(p("ptp_utc_tai_offset")))),
