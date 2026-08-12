@@ -90,7 +90,7 @@ bool OfflinePacketConverterNode::init() {
   input_lidar_topic_ = "/" + robot_name_ + "/ouster/lidar_packets";
   input_imu_topic_ = "/" + robot_name_ + "/ouster/imu";
   frame_id_ = robot_name_ + "/os_sensor";
-  output_lidar_topic_ = "/" + robot_name_ + "/raw_velodyne_points";
+  output_lidar_topic_ = "/" + robot_name_ + "/ouster/raw_points/lowres";
   timestamp_mode_ = "TIME_FROM_PTP_1588";
 
   if (std::filesystem::exists(output_bag_dir_)) {
