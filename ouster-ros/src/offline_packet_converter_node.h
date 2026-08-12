@@ -134,9 +134,14 @@ private:
   std::string data_dir_;
 
   /**
-   * @brief Input bag directory path.
+   * @brief Input bag directory path (current bag being processed).
    */
   std::string input_bag_dir_;
+
+  /**
+   * @brief All (input, output) bag directory pairs to process.
+   */
+  std::vector<std::pair<std::string, std::string>> bag_dirs_;
 
   /**
    * @brief Robot name.
