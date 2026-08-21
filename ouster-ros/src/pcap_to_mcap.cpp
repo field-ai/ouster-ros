@@ -11,6 +11,7 @@
 #include <rosbag2_transport/record_options.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_msgs/msg/string.hpp>
 
 #include <ouster/lidar_scan.h>
 #include <ouster/os_pcap.h>
@@ -114,12 +115,12 @@ bool parse_args(int argc, char** argv, Args& out) {
   return true;
 }
 
-ouster::sdk::core::SensorInfo load_metadata(const std::string& path) {
+std::string load_metadata_json(const std::string& path) {
   std::ifstream ifs(path);
   if (!ifs) throw std::runtime_error("Cannot open metadata file: " + path);
   std::stringstream buf;
   buf << ifs.rdbuf();
-  return ouster::sdk::core::SensorInfo(buf.str());
+  return buf.str();
 }
 
 uint64_t extract_scan_timestamp(const ouster::sdk::core::LidarScan& scan, uint64_t fallback) {
@@ -230,7 +231,8 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  const auto info = load_metadata(args.metadata);
+  const std::string metadata_json = load_metadata_json(args.metadata);
+  const ouster::sdk::core::SensorInfo info(metadata_json);
   const auto& pf = ouster::sdk::core::get_format(info);
 
   // Frames must match what the live driver publishes (fieldai_params.yaml)
@@ -239,6 +241,7 @@ int main(int argc, char** argv) {
   const std::string lidar_topic = "/" + args.robot_namespace + "/ouster/raw_points/highres";
   const std::string dual_lidar_topic = "/" + args.robot_namespace + "/ouster/dual_return/raw_points/highres";
   const std::string imu_topic = "/" + args.robot_namespace + "/ouster/imu";
+  const std::string metadata_topic = "/" + args.robot_namespace + "/ouster/metadata";
 
   // The metadata's profile determines the number of returns; dual-return profiles yield a 2nd cloud.
   const bool has_dual_return = info.num_returns() > 1;
@@ -292,8 +295,27 @@ int main(int argc, char** argv) {
   imu_meta.serialization_format = "cdr";
   writer->create_topic(imu_meta);
 
+  // Ouster metadata, latched like the live driver's publisher so replay re-latches it.
+  rosbag2_storage::TopicMetadata metadata_meta;
+  metadata_meta.name = metadata_topic;
+  metadata_meta.type = "std_msgs/msg/String";
+  metadata_meta.serialization_format = "cdr";
+  metadata_meta.offered_qos_profiles = {rclcpp::QoS(1).reliable().transient_local()};
+  writer->create_topic(metadata_meta);
+
   uint64_t scan_counter = 0;
   uint64_t imu_counter = 0;
+
+  // The metadata is a one-shot latched message; stamp it with the first written
+  // message's timestamp so it sits at the start of the bag's time range.
+  bool metadata_written = false;
+  auto write_metadata_once = [&](uint64_t stamp_ns) {
+    if (metadata_written) return;
+    std_msgs::msg::String metadata_msg;
+    metadata_msg.data = metadata_json;
+    writer->write(serialize(metadata_msg, metadata_topic, stamp_ns));
+    metadata_written = true;
+  };
 
   // Bag log timestamp = pcap host receive time (when the packet would have arrived live),
   // not the message header timestamp (which is the sensor data timestamp from PTP).
@@ -317,12 +339,14 @@ int main(int argc, char** argv) {
                                                           args.ptp_utc_tai_offset);
 
   ScanSink on_scan = [&](const ouster::sdk::core::LidarScan& scan, uint64_t scan_ts) {
+    write_metadata_once(scan_ts);
     current_scan_log_ts = scan_ts;
     point_cloud_processor(scan, scan_ts, rclcpp::Time(scan_ts));
     ++scan_counter;
   };
   ImuSink on_imu = [&](const ouster::sdk::core::ImuPacket& packet) {
     for (const auto& imu : imu_handler(packet)) {
+      write_metadata_once(packet.host_timestamp);
       writer->write(serialize(imu, imu_topic, packet.host_timestamp));
       ++imu_counter;
     }
