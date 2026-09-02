@@ -50,6 +50,7 @@ struct Args {
   double min_range = 0.0;
   double max_range = 1000.0;
   int v_reduction = 1;
+  int max_returns = 0;
   std::string mask_path;
   std::string timestamp_mode = "TIME_FROM_PTP_1588";
   int64_t ptp_utc_tai_offset = 0;
@@ -64,6 +65,7 @@ void print_usage(const char* prog) {
       << "    --robot-namespace <name> \\\n"
       << "    [--point-type original] [--organized 0|1] [--destagger 0|1] \\\n"
       << "    [--min-range 0.0] [--max-range 1000.0] [--v-reduction 1] \\\n"
+      << "    [--max-returns 0] \\\n"
       << "    [--mask-path <file>] [--timestamp-mode TIME_FROM_PTP_1588]\n";
 }
 
@@ -81,6 +83,7 @@ bool parse_args(int argc, char** argv, Args& out) {
       {"min-range", required_argument, nullptr, 'i'},
       {"max-range", required_argument, nullptr, 'x'},
       {"v-reduction", required_argument, nullptr, 'v'},
+      {"max-returns", required_argument, nullptr, 'r'},
       {"mask-path", required_argument, nullptr, 'k'},
       {"timestamp-mode", required_argument, nullptr, 's'},
       {"ptp-utc-tai-offset", required_argument, nullptr, 'u'},
@@ -100,6 +103,7 @@ bool parse_args(int argc, char** argv, Args& out) {
       case 'i': out.min_range = std::stod(optarg); break;
       case 'x': out.max_range = std::stod(optarg); break;
       case 'v': out.v_reduction = std::stoi(optarg); break;
+      case 'r': out.max_returns = std::stoi(optarg); break;
       case 'k': out.mask_path = optarg; break;
       case 's': out.timestamp_mode = optarg; break;
       case 'u': out.ptp_utc_tai_offset = std::stoll(optarg); break;
@@ -110,6 +114,10 @@ bool parse_args(int argc, char** argv, Args& out) {
   if (out.pcaps.empty() || out.metadata.empty() || out.output_bag.empty() ||
       out.robot_namespace.empty()) {
     print_usage(argv[0]);
+    return false;
+  }
+  if (out.max_returns < 0) {
+    std::cerr << "--max-returns needs to be non-negative\n";
     return false;
   }
   return true;
@@ -243,8 +251,12 @@ int main(int argc, char** argv) {
   const std::string imu_topic = "/" + args.robot_namespace + "/ouster/imu";
   const std::string metadata_topic = "/" + args.robot_namespace + "/ouster/metadata";
 
-  // The metadata's profile determines the number of returns; dual-return profiles yield a 2nd cloud.
-  const bool has_dual_return = info.num_returns() > 1;
+  // The metadata's profile determines how many returns are available; max_returns
+  // caps how many get composed/written (0 = all), matching the live driver param.
+  const int num_returns = args.max_returns > 0
+                              ? std::min(args.max_returns, info.num_returns())
+                              : info.num_returns();
+  const bool has_dual_return = num_returns > 1;
 
   // Writer
   rosbag2_cpp::ConverterOptions converter_options;
@@ -333,7 +345,8 @@ int main(int argc, char** argv) {
           const std::string& topic = (i == 0) ? lidar_topic : dual_lidar_topic;
           writer->write(serialize(*msgs[i], topic, current_scan_log_ts));
         }
-      });
+      },
+      args.max_returns);
 
   auto imu_handler = ouster_ros::ImuPacketHandler::create(info, imu_frame_id, args.timestamp_mode,
                                                           args.ptp_utc_tai_offset);

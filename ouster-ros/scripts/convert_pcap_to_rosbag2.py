@@ -248,6 +248,7 @@ def _build_convert_cmd(args: argparse.Namespace, pcaps: list[Path], metadata: Pa
         "--min-range", str(args.min_range),
         "--max-range", str(args.max_range),
         "--v-reduction", str(args.v_reduction),
+        "--max-returns", str(args.max_returns),
         "--timestamp-mode", args.timestamp_mode,
         "--ptp-utc-tai-offset", str(args.ptp_utc_tai_offset),
     ]
@@ -300,6 +301,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--min-range", type=float, default=0.0)
     p.add_argument("--max-range", type=float, default=1000.0)
     p.add_argument("--v-reduction", type=int, default=1)
+    p.add_argument("--max-returns", type=int, default=0)
     p.add_argument("--mask-path", default="")
     p.add_argument("--timestamp-mode", default="TIME_FROM_PTP_1588")
     p.add_argument("--ptp-utc-tai-offset", type=int, default=0)

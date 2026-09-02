@@ -202,6 +202,7 @@ private:
   double min_range_mm_;
   double max_range_mm_;
   int rows_step_;
+  int max_returns_;
   std::string mask_path_;
   std::string ouster_metadata_filepath_;
   bool apply_lidar_to_sensor_transform_;

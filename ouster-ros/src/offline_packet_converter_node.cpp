@@ -207,6 +207,7 @@ void OfflinePacketConverterNode::setupParameters() {
   this->declare_parameter<double>("max_range", 1000.0);
   this->declare_parameter<std::string>("mask_path", "");
   this->declare_parameter<int>("v_reduction", 1);
+  this->declare_parameter<int>("max_returns", 0);
 
   // Get parameter values
   data_dir_ = this->get_parameter("data_dir").as_string();
@@ -218,6 +219,10 @@ void OfflinePacketConverterNode::setupParameters() {
   max_range_mm_ = this->get_parameter("max_range").as_double() * 1e3; // it is in meters, convert to mm
   mask_path_ = this->get_parameter("mask_path").as_string();
   rows_step_ = this->get_parameter("v_reduction").as_int();
+  max_returns_ = static_cast<int>(this->get_parameter("max_returns").as_int());
+  if (max_returns_ < 0) {
+    throw std::runtime_error("max_returns needs to be non-negative");
+  }
   apply_lidar_to_sensor_transform_ = true;
 
   // printing to log.
@@ -228,6 +233,7 @@ void OfflinePacketConverterNode::setupParameters() {
   RCLCPP_INFO(this->get_logger(), "  organized: %d, destagger: %d", organized_, destagger_);
   RCLCPP_INFO(this->get_logger(), "  range: [%f, %f] mm", min_range_mm_, max_range_mm_);
   RCLCPP_INFO(this->get_logger(), "  v_reduction: %d", rows_step_);
+  RCLCPP_INFO(this->get_logger(), "  max_returns: %d", max_returns_);
 }
 
 void OfflinePacketConverterNode::convert() {
@@ -330,7 +336,8 @@ bool OfflinePacketConverterNode::process() {
       max_range_mm_,
       rows_step_,
       mask_path_,
-      [this](ouster_ros::PointCloudProcessor_OutputType msgs) { this->writePointClouds(msgs); });
+      [this](ouster_ros::PointCloudProcessor_OutputType msgs) { this->writePointClouds(msgs); },
+      max_returns_);
 
   bool is_first_scan = true;
   scan_counter_ = 0;
