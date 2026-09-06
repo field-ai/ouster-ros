@@ -26,6 +26,7 @@
 #include "laser_scan_processor.h"
 #include "point_cloud_processor_factory.h"
 #include "telemetry_handler.h"
+#include "lidar_loss_diagnostics.h"
 
 namespace ouster_ros {
 
@@ -37,7 +38,7 @@ class OusterCloud : public OusterProcessingNodeBase {
    public:
     OUSTER_ROS_PUBLIC
     explicit OusterCloud(const rclcpp::NodeOptions& options)
-        : OusterProcessingNodeBase("os_cloud", options), tf_bcast(this) {
+        : OusterProcessingNodeBase("os_cloud", options), tf_bcast(this), loss_diagnostics(this) {
         on_init();
     }
 
@@ -218,7 +219,8 @@ class OusterCloud : public OusterProcessingNodeBase {
             lidar_packet_handler = LidarPacketHandler::create(
                 info, processors, timestamp_mode,
                 static_cast<int64_t>(ptp_utc_tai_offset * 1e+9),
-                min_scan_valid_columns_ratio);
+                min_scan_valid_columns_ratio, &lidar_packet_handler_impl);
+            loss_diagnostics.start(lidar_packet_handler_impl, info);
         }
 
         if (impl::check_token(tokens, "TLM")) {
@@ -269,6 +271,8 @@ class OusterCloud : public OusterProcessingNodeBase {
 
     ImuPacketHandler::HandlerType imu_packet_handler;
     LidarPacketHandler::HandlerType lidar_packet_handler;
+    std::shared_ptr<LidarPacketHandler> lidar_packet_handler_impl;
+    LidarLossDiagnostics<rclcpp::Node> loss_diagnostics;
 
     rclcpp::Publisher<ouster_sensor_msgs::msg::Telemetry>::SharedPtr telemetry_pub;
     TelemetryHandler::HandlerType telemetry_handler;
