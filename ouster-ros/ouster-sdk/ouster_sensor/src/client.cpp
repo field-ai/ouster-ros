@@ -64,8 +64,10 @@ struct Client {
     }
 };
 
-// default udp receive buffer size on windows is very low -- use 1MB
-const int RCVBUF_SIZE = 1024 * 1024;
+// A 128-beam dual-return sensor streams ~10 MB/s in 33 KB datagrams, so 1 MB
+// buffered only ~200 ms and receive-thread stalls under host load dropped
+// datagrams. 16 MB rides out multi-second stalls (kernel doubles the value).
+const int RCVBUF_SIZE = 16 * 1024 * 1024;
 
 // NOLINTNEXTLINE (misc-use-internal-linkage)
 int32_t get_sock_port(SOCKET sock_fd) {
