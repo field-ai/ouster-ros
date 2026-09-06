@@ -14,6 +14,7 @@ find_package(class_loader REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(ouster_sensor_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
@@ -155,7 +156,7 @@ rclcpp_components_register_node(os_replay_component
 # ==== os_cloud_component ====
 create_ros2_component(os_cloud_component
   "src/os_processing_node_base.cpp;src/os_cloud_node.cpp"
-  "tf2_ros"
+  "tf2_ros;diagnostic_msgs"
 )
 rclcpp_components_register_node(os_cloud_component
   PLUGIN "ouster_ros::OusterCloud"
@@ -175,7 +176,7 @@ rclcpp_components_register_node(os_image_component
 # ==== os_driver_component ====
 create_ros2_component(os_driver_component
   "src/os_sensor_node_base.cpp;src/os_sensor_node.cpp;src/os_driver_node.cpp"
-  "std_srvs"
+  "std_srvs;diagnostic_msgs"
 )
 rclcpp_components_register_node(os_driver_component
   PLUGIN "ouster_ros::OusterDriver"

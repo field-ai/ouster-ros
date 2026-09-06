@@ -23,6 +23,7 @@
 #include "image_processor.h"
 #include "point_cloud_processor_factory.h"
 #include "telemetry_handler.h"
+#include "lidar_loss_diagnostics.h"
 
 namespace ouster_ros {
 
@@ -35,7 +36,7 @@ class OusterDriver : public OusterSensor {
    public:
     OUSTER_ROS_PUBLIC
     explicit OusterDriver(const rclcpp::NodeOptions& options)
-        : OusterSensor("os_driver", options), tf_bcast(this) {
+        : OusterSensor("os_driver", options), tf_bcast(this), loss_diagnostics(this) {
         tf_bcast.declare_parameters();
         tf_bcast.parse_parameters();
         declare_parameter("proc_mask", "IMU|PCL|SCAN|IMG|RAW|TLM");
@@ -234,11 +235,13 @@ class OusterDriver : public OusterSensor {
         }
 
         if (impl::check_token(tokens, "PCL") || impl::check_token(tokens, "SCAN") ||
-            impl::check_token(tokens, "IMG"))
+            impl::check_token(tokens, "IMG")) {
             lidar_packet_handler = LidarPacketHandler::create(
                 info, processors, timestamp_mode,
                 static_cast<int64_t>(ptp_utc_tai_offset * 1e+9),
-                min_scan_valid_columns_ratio);
+                min_scan_valid_columns_ratio, &lidar_packet_handler_impl);
+            loss_diagnostics.start(lidar_packet_handler_impl, info);
+        }
 
         if (impl::check_token(tokens, "TLM")) {
             telemetry_pub =
@@ -281,7 +284,9 @@ class OusterDriver : public OusterSensor {
 
     virtual void cleanup() override {
         imu_packet_handler = nullptr;
+        loss_diagnostics.stop();
         lidar_packet_handler = nullptr;
+        lidar_packet_handler_impl.reset();
         imu_pub.reset();
         for (auto p : lidar_pubs) p.reset();
         for (auto p : scan_pubs) p.reset();
@@ -302,6 +307,8 @@ class OusterDriver : public OusterSensor {
         image_pubs;
     ImuPacketHandler::HandlerType imu_packet_handler;
     LidarPacketHandler::HandlerType lidar_packet_handler;
+    std::shared_ptr<LidarPacketHandler> lidar_packet_handler_impl;
+    LidarLossDiagnostics<rclcpp_lifecycle::LifecycleNode> loss_diagnostics;
 
     bool publish_raw = false;
 
