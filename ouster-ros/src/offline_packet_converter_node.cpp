@@ -62,6 +62,12 @@ bool OfflinePacketConverterNode::init() {
   auto lidar_bags = findDirsByRegex(rosbag2_dir.string(), LIDAR_BAG_PATTERN);
 
   if (lidar_bags.empty()) {
+    RCLCPP_ERROR(this->get_logger(),
+                 "No lidar packet bag matching '%s' found in %s. This node reads lidar packets recorded as a "
+                 "rosbag. If the lidar capture is stored as pcap under <data_dir>/ouster/, run "
+                 "'ros2 launch ouster_ros convert_pcap.launch.py' with the same arguments instead.",
+                 LIDAR_BAG_PATTERN,
+                 rosbag2_dir.string().c_str());
     return false;
   }
 
