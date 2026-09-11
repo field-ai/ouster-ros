@@ -321,7 +321,12 @@ def main(argv: list[str] | None = None) -> int:
 
     sessions = _find_session_dirs(data_dir)
     if not sessions:
-        log.error("No ouster session directories (ouster/<robot>_ouster_<ts>/) found under %s", data_dir)
+        log.error(
+            "No ouster session directories (ouster/<robot>_ouster_<ts>/) found under %s. This script converts "
+            "pcap captures. If the lidar packets were recorded into a rosbag2/<robot>_lidar_*/ bag instead, run "
+            "'ros2 launch ouster_ros offline_packet_converter.launch.py' with the same arguments.",
+            data_dir,
+        )
         return 1
 
     log.info("Found %d ouster session(s) under %s", len(sessions), data_dir)

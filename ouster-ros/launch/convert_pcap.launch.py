@@ -8,6 +8,10 @@ Discovers every ouster/<robot>_ouster_<timestamp>/ session under data_dir,
 decompresses its pcap files (recovering a truncated trailing file), and writes
 one rosbag2/<robot>_lidar_pointcloud_<timestamp>/ bag per session.
 
+Older datasets recorded the lidar packets into a rosbag2/<robot>_lidar_*/ bag of
+ouster_sensor_msgs/msg/PacketMsg and have no ouster/ sessions. Convert those with
+offline_packet_converter.launch.py instead; it takes the same arguments.
+
 The pcap_to_mcap conversion parameters (point_type, organized, ranges, etc.) are
 read from a single source of truth -- the ouster_ros config/fieldai_params.yaml --
 rather than being duplicated here. Override with params_file:=<path>.
