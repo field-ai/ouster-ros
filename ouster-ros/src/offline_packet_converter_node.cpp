@@ -62,6 +62,11 @@ bool OfflinePacketConverterNode::init() {
   auto lidar_bags = findDirsByRegex(rosbag2_dir.string(), LIDAR_BAG_PATTERN);
 
   if (lidar_bags.empty()) {
+    RCLCPP_ERROR(this->get_logger(),
+                 "Unexpected dataset layout: no lidar packet bag directory matching '%s' under %s. Expected "
+                 "rosbag2/<robot>_lidar_<timestamp>/ with ouster_sensor_msgs/msg/PacketMsg recordings.",
+                 LIDAR_BAG_PATTERN,
+                 rosbag2_dir.string().c_str());
     return false;
   }
 
