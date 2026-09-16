@@ -17,6 +17,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 
 #include "lock_free_ring_buffer.h"
+#include <atomic>
 #include <optional>
 #include <thread>
 #include <chrono>
@@ -63,6 +64,26 @@ class LidarPacketHandler {
     using HandlerOutput = ouster::sdk::core::LidarScan;
 
     using HandlerType = std::function<void(const ouster::sdk::core::LidarPacket&)>;
+
+    // Cumulative packet-loss accounting; the driver exposes it on /diagnostics so
+    // a site log can tell incomplete scans apart from downstream problems.
+    struct Stats {
+        uint64_t scans_completed = 0;
+        uint64_t scans_incomplete = 0;   // completed with at least one invalid column
+        uint64_t scans_skipped = 0;      // below min_scan_valid_columns_ratio
+        uint64_t columns_missing = 0;
+        uint64_t packets_dropped_ring_full = 0;
+    };
+
+    Stats stats() const {
+        Stats st;
+        st.scans_completed = scans_completed_.load();
+        st.scans_incomplete = scans_incomplete_.load();
+        st.scans_skipped = scans_skipped_.load();
+        st.columns_missing = columns_missing_.load();
+        st.packets_dropped_ring_full = packets_dropped_ring_full_.load();
+        return st;
+    }
 
    public:
     LidarPacketHandler(const ouster::sdk::core::SensorInfo& info,
@@ -121,6 +142,7 @@ class LidarPacketHandler {
         lidar_packet_accumlator = LidarPacketAccumlator{
             [this, pf, lidar_handler](const ouster::sdk::core::LidarPacket& lidar_packet) {
                 if (ring_buffer.full()) {
+                    packets_dropped_ring_full_++;
                     RCLCPP_WARN(rclcpp::get_logger(getName()),
                                 "lidar_scans full, DROPPING PACKET");
                     return false;
@@ -137,11 +159,18 @@ class LidarPacketHandler {
                         size_t valid_cols = std::count_if(status.data(), status.data() + status.size(),
                                [](const uint32_t s) { return (s & 0x01); });
                         if (valid_cols < static_cast<size_t>(min_scan_valid_columns_ratio_ * status.size())) {
+                            scans_skipped_++;
                             RCLCPP_WARN_STREAM(rclcpp::get_logger(getName()), "number of valid columns per scan "
                                 << valid_cols << "/" << status.size()
                                 <<" which is below the ratio " << std::setprecision(4) << (100 * min_scan_valid_columns_ratio_)
                                 << "%, SKIPPING SCAN");
                             result = false;
+                        } else {
+                            scans_completed_++;
+                            if (valid_cols < status.size()) {
+                                scans_incomplete_++;
+                                columns_missing_ += status.size() - valid_cols;
+                            }
                         }
                     }
                 }
@@ -174,10 +203,12 @@ class LidarPacketHandler {
         const ouster::sdk::core::SensorInfo& info,
         const std::vector<LidarScanProcessor>& handlers,
         const std::string& timestamp_mode, int64_t ptp_utc_tai_offset,
-        float min_scan_valid_columns_ratio) {
+        float min_scan_valid_columns_ratio,
+        std::shared_ptr<LidarPacketHandler>* handler_out = nullptr) {
         auto handler = std::make_shared<LidarPacketHandler>(
             info, handlers, timestamp_mode, ptp_utc_tai_offset,
             min_scan_valid_columns_ratio);
+        if (handler_out) *handler_out = handler;
         return [handler](const ouster::sdk::core::LidarPacket& lidar_packet) {
             if (handler->lidar_packet_accumlator(lidar_packet)) {
                 handler->ring_buffer_has_elements.notify_one();
@@ -386,6 +417,12 @@ class LidarPacketHandler {
     int64_t ptp_utc_tai_offset_;
 
     float min_scan_valid_columns_ratio_ = 0.0f;
+
+    std::atomic<uint64_t> scans_completed_{0};
+    std::atomic<uint64_t> scans_incomplete_{0};
+    std::atomic<uint64_t> scans_skipped_{0};
+    std::atomic<uint64_t> columns_missing_{0};
+    std::atomic<uint64_t> packets_dropped_ring_full_{0};
 };
 
 }  // namespace ouster_ros

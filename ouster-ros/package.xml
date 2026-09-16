@@ -17,6 +17,7 @@
   <depend>std_msgs</depend>
   <depend>ouster_sensor_msgs</depend>
   <depend>sensor_msgs</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>pcl_ros</depend>
   <depend>std_srvs</depend>
