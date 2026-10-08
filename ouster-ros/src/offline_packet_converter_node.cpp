@@ -362,6 +362,9 @@ bool OfflinePacketConverterNode::process() {
 
     uint64_t scan_ts = extractScanTimestamp(scan, lidar_packet.host_timestamp);
 
+    // The completing packet's receive time is when a live driver publishes the
+    // cloud; logging at the sweep-start stamp would replay it one sweep early.
+    current_scan_log_ts_ = lidar_packet.host_timestamp;
     point_cloud_processor(scan, scan_ts, rclcpp::Time(scan_ts));
     scan_counter_++;
   }
@@ -380,8 +383,7 @@ void OfflinePacketConverterNode::writePointClouds(ouster_ros::PointCloudProcesso
     bag_msg->topic_name = output_lidar_topic_;
     bag_msg->serialized_data =
         std::shared_ptr<rcutils_uint8_array_t>(serialized, &serialized->get_rcl_serialized_message());
-    bag_msg->recv_timestamp =
-        static_cast<uint64_t>(cloud_msg->header.stamp.sec) * NANOSECONDS_PER_SECOND + cloud_msg->header.stamp.nanosec;
+    bag_msg->recv_timestamp = current_scan_log_ts_;
     writer_->write(bag_msg);
   }
 }

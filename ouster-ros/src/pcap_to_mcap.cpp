@@ -163,7 +163,7 @@ struct BatchState {
   }
 };
 
-using ScanSink = std::function<void(const ouster::sdk::core::LidarScan&, uint64_t)>;
+using ScanSink = std::function<void(const ouster::sdk::core::LidarScan&, uint64_t, uint64_t)>;
 using ImuSink = std::function<void(const ouster::sdk::core::ImuPacket&)>;
 
 void process_pcap(const std::string& pcap_path,
@@ -190,7 +190,7 @@ void process_pcap(const std::string& pcap_path,
             state.is_first_scan = false;
           } else {
             const uint64_t scan_ts = extract_scan_timestamp(state.scan, host_ts);
-            on_scan(state.scan, scan_ts);
+            on_scan(state.scan, scan_ts, host_ts);
           }
         }
       }
@@ -338,9 +338,11 @@ int main(int argc, char** argv) {
   auto imu_handler = ouster_ros::ImuPacketHandler::create(info, imu_frame_id, args.timestamp_mode,
                                                           args.ptp_utc_tai_offset);
 
-  ScanSink on_scan = [&](const ouster::sdk::core::LidarScan& scan, uint64_t scan_ts) {
+  ScanSink on_scan = [&](const ouster::sdk::core::LidarScan& scan, uint64_t scan_ts, uint64_t host_ts) {
     write_metadata_once(scan_ts);
-    current_scan_log_ts = scan_ts;
+    // Log at the completing packet's receive time, as the live driver publishes
+    // the cloud; the sweep-start stamp would replay it one sweep early.
+    current_scan_log_ts = host_ts;
     point_cloud_processor(scan, scan_ts, rclcpp::Time(scan_ts));
     ++scan_counter;
   };

@@ -191,6 +191,7 @@ private:
   /**
    * @brief scan counter
    */
+  uint64_t current_scan_log_ts_ = 0;
   int scan_counter_;
 
   /**
